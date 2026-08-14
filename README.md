@@ -7,7 +7,7 @@
 - 9×9盤、駒移動、駒取り、持ち駒、駒打ち、成り・不成
 - 二歩、行き所のない駒、打ち歩詰め、王手放置の禁止
 - 持ち駒3枚による変則勝敗
-- 先手ユーザー対後手YaneuraOu
+- ユーザーの先手・後手選択
 - パスワード付き検討モード
 - 最善手・次善手・第3候補
 - 検討開始／停止、1手戻る／進む
@@ -15,7 +15,7 @@
 
 ## 公開方式
 
-`render.yaml`を利用するRender Blueprintです。Dockerのビルド中にYaneuraOu V9.00のMaterial版をLinux向けにコンパイルします。
+`render.yaml`を利用するRender Blueprintです。Dockerのビルド中にYaneuraOu 9.70gitのMaterial版へ持ち駒3枚ルールの探索パッチを適用し、Linux向けにコンパイルします。
 
 秘密の値はコードへ書かず、Renderの画面で設定します。
 

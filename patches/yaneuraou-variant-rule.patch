@@ -1,0 +1,87 @@
+diff --git a/source/engine/yaneuraou-engine/yaneuraou-search.cpp b/source/engine/yaneuraou-engine/yaneuraou-search.cpp
+--- a/source/engine/yaneuraou-engine/yaneuraou-search.cpp
++++ b/source/engine/yaneuraou-engine/yaneuraou-search.cpp
+@@ -2428,6 +2428,22 @@ Value Search::YaneuraOuWorker::search(Position& pos, Stack* ss, Value alpha, Val
+     //  RootNode以外での処理
+     // -----------------------
+ 
++    // 変則将棋：持ち駒が3枚以上になった側は負け。
++    int blackHandCount = 0;
++    int whiteHandCount = 0;
++
++    for (auto pt = PAWN; pt < PIECE_HAND_NB; ++pt)
++    {
++        blackHandCount += hand_count(pos.hand_of(BLACK), pt);
++        whiteHandCount += hand_count(pos.hand_of(WHITE), pt);
++    }
++
++    if (blackHandCount >= 3)
++        return pos.side_to_move() == BLACK ? mated_in(ss->ply) : mate_in(ss->ply);
++
++    if (whiteHandCount >= 3)
++        return pos.side_to_move() == WHITE ? mated_in(ss->ply) : mate_in(ss->ply);
++
+     if (!rootNode)
+     {
+         // -----------------------
+@@ -4588,6 +4604,22 @@ Value Search::YaneuraOuWorker::qsearch(Position& pos, Stack* ss, Value alpha, Va
+     // 現局面の手番側のColor
+     Color us = pos.side_to_move();
+ 
++    // 変則将棋：持ち駒が3枚以上になった側は負け。
++    int blackHandCount = 0;
++    int whiteHandCount = 0;
++
++    for (auto pt = PAWN; pt < PIECE_HAND_NB; ++pt)
++    {
++        blackHandCount += hand_count(pos.hand_of(BLACK), pt);
++        whiteHandCount += hand_count(pos.hand_of(WHITE), pt);
++    }
++
++    if (blackHandCount >= 3)
++        return pos.side_to_move() == BLACK ? mated_in(ss->ply) : mate_in(ss->ply);
++
++    if (whiteHandCount >= 3)
++        return pos.side_to_move() == WHITE ? mated_in(ss->ply) : mate_in(ss->ply);
++
+     auto draw_type = pos.is_repetition(ss->ply);
+     if (draw_type != REPETITION_NONE)
+     /*
+diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/evaluate_material.cpp
+--- a/source/eval/material/evaluate_material.cpp
++++ b/source/eval/material/evaluate_material.cpp
+@@ -28,11 +28,30 @@ namespace Eval {
+ 	// (序盤を定跡などでうまく乗り切れれば)
+ 
+ 	void add_options(OptionsMap&, ThreadPool&) {}
+-	Value compute_eval(const Position& pos) {
+-		auto score = pos.state()->materialValue;
+-		ASSERT_LV5(pos.state()->materialValue == Eval::material(pos));
++	Value compute_eval(const Position& pos)
++	{
++		const Color us = pos.side_to_move();
++		const Color them = ~us;
++
++		const auto hand_total = [&](Color color) {
++			const Hand hand = pos.hand_of(color);
++			return hand_count(hand, PAWN)
++				 + hand_count(hand, LANCE)
++				 + hand_count(hand, KNIGHT)
++				 + hand_count(hand, SILVER)
++				 + hand_count(hand, BISHOP)
++				 + hand_count(hand, ROOK)
++				 + hand_count(hand, GOLD);
++		};
+ 
+-		return pos.side_to_move() == BLACK ? score : -score;
++		if (hand_total(them) >= 3)
++			return Value(32000);
++		if (hand_total(us) >= 3)
++			return Value(-32000);
++
++		auto score = pos.state()->materialValue;
++		ASSERT_LV5(pos.state()->materialValue == Eval::material(pos));
++		return us == BLACK ? score : -score;
+ 	}
+ 
+ #elif MATERIAL_LEVEL == 2

@@ -1,14 +1,21 @@
 FROM ubuntu:24.04 AS engine-builder
 
 ARG DEBIAN_FRONTEND=noninteractive
-ARG YANEURAOU_REF=V9.00
+ARG YANEURAOU_REF=33ccf1f907eb7184889fa23051243f81ab0bf973
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends build-essential ca-certificates git \
     && rm -rf /var/lib/apt/lists/*
 
-RUN git clone --depth 1 --branch "${YANEURAOU_REF}" \
-    https://github.com/yaneurao/YaneuraOu.git /src/YaneuraOu
+RUN git init /src/YaneuraOu \
+    && git -C /src/YaneuraOu remote add origin https://github.com/yaneurao/YaneuraOu.git \
+    && git -C /src/YaneuraOu fetch --depth 1 origin "${YANEURAOU_REF}" \
+    && git -C /src/YaneuraOu checkout --detach FETCH_HEAD
+
+COPY patches/yaneuraou-variant-rule.patch /tmp/yaneuraou-variant-rule.patch
+
+RUN git -C /src/YaneuraOu apply --check /tmp/yaneuraou-variant-rule.patch \
+    && git -C /src/YaneuraOu apply /tmp/yaneuraou-variant-rule.patch
 
 WORKDIR /src/YaneuraOu/source
 
@@ -49,6 +56,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --from=engine-builder /out/YaneuraOu /opt/yaneuraou/YaneuraOu
 COPY --from=engine-builder /out/YaneuraOu-avx2 /opt/yaneuraou/YaneuraOu-avx2
+COPY --from=engine-builder /src/YaneuraOu/LICENSE /opt/yaneuraou/LICENSE
 COPY app.py ./
 COPY templates ./templates
 COPY static ./static
