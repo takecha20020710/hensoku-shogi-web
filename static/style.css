@@ -190,6 +190,7 @@ a:focus-visible {
   aspect-ratio: 1;
   display: grid;
   grid-template-columns: repeat(9, 1fr);
+  grid-template-rows: repeat(9, minmax(0, 1fr));
   background: var(--board);
   border: 3px solid var(--board-dark);
   box-shadow: var(--shadow);
@@ -202,6 +203,8 @@ a:focus-visible {
   display: grid;
   place-items: center;
   min-width: 0;
+  min-height: 0;
+  aspect-ratio: 1;
   padding: 0;
   border: 0;
   border-right: 1px solid var(--board-dark);
@@ -356,7 +359,7 @@ a:focus-visible {
 }
 
 .candidate-list {
-  margin: 14px 0 18px;
+  margin: 12px 0 0;
   padding: 0;
   list-style: none;
 }
@@ -380,10 +383,30 @@ a:focus-visible {
   white-space: pre-line;
 }
 
+.analysis-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+}
+
 .analysis-controls {
   display: flex;
-  justify-content: center;
   gap: 7px;
+}
+
+.analysis-metrics {
+  display: flex;
+  justify-content: flex-end;
+  gap: 18px;
+  color: var(--muted);
+  font-size: 0.84rem;
+}
+
+.analysis-metrics strong {
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
 }
 
 .square-button {
@@ -483,74 +506,193 @@ a:focus-visible {
 }
 
 @media (max-width: 760px) {
+  body {
+    min-height: 100dvh;
+  }
+
   .app-shell {
-    padding: 12px;
+    padding: 4px;
+  }
+
+  .game-screen {
+    min-height: calc(100dvh - 8px);
   }
 
   .game-header {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    gap: 4px;
+    margin-bottom: 4px;
   }
 
   .status-wrap {
-    grid-column: 1 / -1;
+    grid-column: 2;
     grid-row: 1;
   }
 
   .text-button {
-    grid-row: 2;
-    font-size: 0.76rem;
+    grid-row: 1;
+    padding: 6px;
+    border-radius: 7px;
+    font-size: 0.66rem;
+    white-space: nowrap;
+  }
+
+  .text-button.align-right {
+    grid-column: 3;
+  }
+
+  .mode-name {
+    font-size: 0.62rem;
+  }
+
+  .status-wrap h1 {
+    font-size: 1rem;
   }
 
   .game-layout {
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    align-items: center;
+    gap: 3px;
   }
 
   .board-wrap {
     grid-column: 1 / -1;
-    grid-row: 1;
+    grid-row: 2;
+    width: 100%;
+    justify-self: center;
+  }
+
+  .analysis-mode .board-wrap {
+    width: min(100%, calc(100dvh - 270px));
+  }
+
+  .match-mode .board-wrap {
+    width: min(100%, calc(100dvh - 120px));
   }
 
   .hand-panel {
-    grid-row: 2;
+    grid-row: 1;
     min-height: 0;
-    padding: 10px;
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 6px;
+    border-radius: 7px;
+    text-align: left;
   }
 
   .hand-panel h2 {
-    margin-bottom: 8px;
+    margin: 0;
+    font-size: 0.62rem;
+    line-height: 1.1;
+    white-space: nowrap;
+  }
+
+  .hand-panel h2 br {
+    display: none;
   }
 
   .hand-pieces {
-    grid-template-columns: repeat(4, 1fr);
+    display: flex;
+    gap: 3px;
+    min-width: 0;
+    overflow-x: auto;
   }
 
   .hand-piece {
-    min-height: 36px;
+    width: auto;
+    min-width: 38px;
+    min-height: 26px;
+    padding: 2px 4px;
+    border-radius: 5px;
+    font-size: 0.66rem;
+  }
+
+  .hand-count {
+    margin: 0;
+    font-size: 0.62rem;
+    white-space: nowrap;
   }
 
   .piece {
-    font-size: clamp(0.86rem, 5vw, 1.45rem);
+    font-size: clamp(0.68rem, 4.4vw, 1.35rem);
     border-width: 1px;
   }
 
+  .game-message {
+    min-height: 1.1em;
+    margin: 3px 0 0;
+    font-size: 0.7rem;
+  }
+
   .analysis-panel {
-    padding: 16px;
+    margin-top: 4px;
+    padding: 6px 8px;
+    border-radius: 10px;
+    box-shadow: none;
   }
 
   .analysis-heading {
     align-items: center;
+    gap: 8px;
+  }
+
+  .analysis-heading .eyebrow {
+    display: none;
+  }
+
+  .analysis-heading h2 {
+    font-size: 0.82rem;
+  }
+
+  .move-number {
+    font-size: 0.7rem;
+  }
+
+  .analysis-toolbar {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 6px;
+    margin-top: 4px;
+  }
+
+  .analysis-controls {
+    gap: 3px;
+  }
+
+  .square-button {
+    width: 30px;
+    height: 30px;
+    border-radius: 5px;
+    font-size: 0.78rem;
+  }
+
+  .analysis-metrics {
+    gap: 8px;
+    font-size: 0.68rem;
+  }
+
+  .candidate-list {
+    margin-top: 3px;
   }
 
   .candidate-list li {
-    grid-template-columns: 68px 1fr;
-    font-size: 0.86rem;
+    grid-template-columns: 52px minmax(0, 1fr);
+    gap: 5px;
+    padding: 3px 0;
+    font-size: 0.68rem;
+    line-height: 1.25;
+  }
+
+  .candidate-list p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .site-footer {
-    flex-direction: column;
-    align-items: center;
-    gap: 4px;
+    display: none;
   }
 }
 
@@ -559,16 +701,7 @@ a:focus-visible {
     padding: 42px 24px;
   }
 
-  .hand-pieces {
-    grid-template-columns: repeat(3, 1fr);
-  }
-
   .candidate-list li {
-    display: block;
-  }
-
-  .candidate-list li > span {
-    display: block;
-    margin-bottom: 4px;
+    grid-template-columns: 48px minmax(0, 1fr);
   }
 }
