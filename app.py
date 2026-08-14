@@ -103,6 +103,8 @@ class YaneuraOu:
         self._send("usi")
         self._read_until(lambda line: line == "usiok", 20)
         self._send("setoption name Threads value 1")
+        # YaneuraOu uses USI_Hash (not Stockfish's Hash). Keep it small enough
+        # for Render's 512 MB free instance.
         self._send("setoption name USI_Hash value 16")
         self._send("isready")
         self._read_until(lambda line: line == "readyok", 30)
@@ -128,6 +130,9 @@ class YaneuraOu:
         result = {
             "multipv": 1,
             "depth": None,
+            "seldepth": None,
+            "nodes": None,
+            "nps": None,
             "score_type": None,
             "score": None,
             "pv": [],
@@ -135,7 +140,7 @@ class YaneuraOu:
         index = 1
         while index < len(parts):
             token = parts[index]
-            if token in ("depth", "multipv") and index + 1 < len(parts):
+            if token in ("depth", "seldepth", "multipv", "nodes", "nps") and index + 1 < len(parts):
                 try:
                     result[token] = int(parts[index + 1])
                 except ValueError:
@@ -197,7 +202,9 @@ class YaneuraOu:
                 raise EngineError("AIから指し手を取得できませんでした。")
 
             ordered = [candidates[key] for key in sorted(candidates) if key <= multipv]
-            return {"bestmove": bestmove, "candidates": ordered}
+            nodes = max((candidate.get("nodes") or 0 for candidate in ordered), default=0)
+            nps = max((candidate.get("nps") or 0 for candidate in ordered), default=0)
+            return {"bestmove": bestmove, "candidates": ordered, "nodes": nodes, "nps": nps}
 
 
 engine = YaneuraOu(ENGINE_PATH)
