@@ -35,6 +35,10 @@ const elements = {
   analysisNodes: document.querySelector("#analysis-nodes"),
   analysisNps: document.querySelector("#analysis-nps"),
   candidates: [1, 2, 3].map((rank) => document.querySelector(`#candidate-${rank}`)),
+  sideDialog: document.querySelector("#side-dialog"),
+  chooseSente: document.querySelector("#choose-sente"),
+  chooseGote: document.querySelector("#choose-gote"),
+  closeSide: document.querySelector("#close-side"),
   passwordDialog: document.querySelector("#password-dialog"),
   passwordForm: document.querySelector("#password-form"),
   passwordInput: document.querySelector("#analysis-password"),
@@ -54,6 +58,7 @@ let moveNumber = 0;
 let gameOver = false;
 let gameMessage = "";
 let aiThinking = false;
+let humanSide = 0;
 let analysisRunning = false;
 let history = [];
 let historyIndex = -1;
@@ -344,20 +349,41 @@ function handTotal(owner) {
 }
 
 
+function aiSide() {
+  return 1 - humanSide;
+}
+
+
+function isAiTurn() {
+  return mode === "match" && turn === aiSide();
+}
+
+
+function matchResult(loser, humanLossMessage, aiLossMessage) {
+  return loser === humanSide ? humanLossMessage : aiLossMessage;
+}
+
+
 function checkGameEnd() {
   if (handTotal(0) >= 3) {
     gameOver = true;
-    gameMessage = mode === "match" ? "持ち駒が3枚になりました。あなたの負けです。" : "先手の持ち駒が3枚になりました。先手の負けです。";
+    gameMessage = mode === "match"
+      ? matchResult(0, "持ち駒が3枚になりました。あなたの負けです。", "AIの持ち駒が3枚になりました。あなたの勝ちです！")
+      : "先手の持ち駒が3枚になりました。先手の負けです。";
     return true;
   }
   if (handTotal(1) >= 3) {
     gameOver = true;
-    gameMessage = mode === "match" ? "相手の持ち駒が3枚になりました。あなたの勝ちです！" : "後手の持ち駒が3枚になりました。後手の負けです。";
+    gameMessage = mode === "match"
+      ? matchResult(1, "持ち駒が3枚になりました。あなたの負けです。", "AIの持ち駒が3枚になりました。あなたの勝ちです！")
+      : "後手の持ち駒が3枚になりました。後手の負けです。";
     return true;
   }
   if (isInCheck(board, turn) && !hasAnyLegalMove(board, hands, turn)) {
     gameOver = true;
-    if (mode === "match") gameMessage = turn === 1 ? "相手の王を詰ませました。あなたの勝ちです！" : "あなたの王が詰みました。あなたの負けです。";
+    if (mode === "match") {
+      gameMessage = matchResult(turn, "あなたの王が詰みました。あなたの負けです。", "AIの王を詰ませました。あなたの勝ちです！");
+    }
     else gameMessage = `${turn === 0 ? "先手" : "後手"}の王が詰みました。`;
     return true;
   }
@@ -384,6 +410,7 @@ function resetPosition() {
   resetAnalysisProgress(false);
   saveHistory();
   renderAll();
+  if (isAiTurn()) window.setTimeout(requestAiMove, 120);
 }
 
 
@@ -393,9 +420,17 @@ function startMode(nextMode) {
   elements.gameScreen.classList.remove("is-hidden");
   elements.gameScreen.classList.toggle("match-mode", mode === "match");
   elements.gameScreen.classList.toggle("analysis-mode", mode === "analysis");
+  elements.gameScreen.classList.toggle("gote-player", mode === "match" && humanSide === 1);
   elements.analysisPanel.classList.toggle("is-hidden", mode !== "analysis");
-  elements.modeName.textContent = mode === "match" ? "対局モード" : "検討モード";
+  elements.modeName.textContent = mode === "match" ? `対局モード（${humanSide === 0 ? "先手" : "後手"}）` : "検討モード";
   resetPosition();
+}
+
+
+function startMatch(side) {
+  humanSide = side;
+  elements.sideDialog.close();
+  startMode("match");
 }
 
 
@@ -411,8 +446,12 @@ function returnToModes() {
 
 function renderBoard() {
   elements.board.replaceChildren();
-  for (let row = 0; row < 9; row += 1) {
-    for (let col = 0; col < 9; col += 1) {
+  const flipped = mode === "match" && humanSide === 1;
+  elements.board.classList.toggle("flipped", flipped);
+  for (let displayRow = 0; displayRow < 9; displayRow += 1) {
+    const row = flipped ? 8 - displayRow : displayRow;
+    for (let displayCol = 0; displayCol < 9; displayCol += 1) {
+      const col = flipped ? 8 - displayCol : displayCol;
       const square = document.createElement("button");
       square.type = "button";
       square.className = "square";
@@ -450,7 +489,7 @@ function renderHand(owner, container) {
     button.type = "button";
     button.className = "hand-piece";
     button.textContent = `${PIECE_NAMES[type]} ×${count}`;
-    button.disabled = gameOver || aiThinking || owner !== turn || (mode === "match" && owner === 1);
+    button.disabled = gameOver || aiThinking || owner !== turn || (mode === "match" && owner !== humanSide);
     if (selectedHand === type && owner === turn) button.classList.add("selected");
     button.addEventListener("click", () => selectHand(owner, type));
     container.append(button);
@@ -477,7 +516,7 @@ function renderAll() {
 
 function canInteract() {
   if (gameOver || aiThinking || !mode) return false;
-  return !(mode === "match" && turn === 1);
+  return !(mode === "match" && turn !== humanSide);
 }
 
 
@@ -553,7 +592,7 @@ function completeMove() {
   if (mode === "analysis") resetAnalysisProgress(analysisRunning);
   renderAll();
 
-  if (!gameOver && mode === "match" && turn === 1) window.setTimeout(requestAiMove, 120);
+  if (!gameOver && isAiTurn()) window.setTimeout(requestAiMove, 120);
   if (!gameOver && mode === "analysis" && analysisRunning) requestAnalysis();
 }
 
@@ -689,13 +728,13 @@ async function postJson(url, body) {
 
 
 async function requestAiMove() {
-  if (gameOver || mode !== "match" || turn !== 1 || aiThinking) return;
+  if (gameOver || mode !== "match" || turn !== aiSide() || aiThinking) return;
   const serial = ++requestSerial;
   aiThinking = true;
   gameMessage = "";
   renderAll();
   try {
-    const result = await postJson("/api/think", { sfen: makeSfen(), movetime: 1800 });
+    const result = await postJson("/api/think", { sfen: makeSfen(), movetime: 5000 });
     if (serial !== requestSerial || mode !== "match") return;
     aiThinking = false;
     applyUsiMove(result.bestmove);
@@ -902,8 +941,11 @@ async function openAnalysisMode() {
 }
 
 
-elements.matchModeButton.addEventListener("click", () => startMode("match"));
+elements.matchModeButton.addEventListener("click", () => elements.sideDialog.showModal());
 elements.analysisModeButton.addEventListener("click", openAnalysisMode);
+elements.chooseSente.addEventListener("click", () => startMatch(0));
+elements.chooseGote.addEventListener("click", () => startMatch(1));
+elements.closeSide.addEventListener("click", () => elements.sideDialog.close());
 elements.backToModes.addEventListener("click", returnToModes);
 elements.resetGame.addEventListener("click", resetPosition);
 elements.historyBack.addEventListener("click", () => restoreHistory(historyIndex - 1));

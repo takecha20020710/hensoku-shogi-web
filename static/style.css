@@ -268,6 +268,22 @@ a:focus-visible {
   transform: rotate(180deg);
 }
 
+.board.flipped .piece.white {
+  transform: none;
+}
+
+.board.flipped .piece.black {
+  transform: rotate(180deg);
+}
+
+.game-screen.gote-player .black-hand {
+  order: -1;
+}
+
+.game-screen.gote-player .white-hand {
+  order: 1;
+}
+
 .piece.promoted {
   color: #a42318;
 }
@@ -504,6 +520,17 @@ a:focus-visible {
   min-height: 1.4em;
   color: var(--accent);
   font-weight: 800;
+}
+
+.side-dialog form {
+  text-align: center;
+}
+
+.side-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
 }
 
 @media (max-width: 760px) {

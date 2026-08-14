@@ -85,6 +85,19 @@
     </section>
   </main>
 
+  <dialog id="side-dialog" class="password-dialog side-dialog">
+    <form method="dialog">
+      <button id="close-side" class="dialog-close" type="button" aria-label="閉じる">×</button>
+      <p class="eyebrow">MATCH SETUP</p>
+      <h2>手番を選択</h2>
+      <p>あなたが指す側を選んでください。</p>
+      <div class="side-actions">
+        <button id="choose-sente" class="primary-button" type="button">先手で対局</button>
+        <button id="choose-gote" class="secondary-button" type="button">後手で対局</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="password-dialog" class="password-dialog">
     <form id="password-form" method="dialog">
       <button id="close-password" class="dialog-close" type="button" aria-label="閉じる">×</button>
