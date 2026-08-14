@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: hensoku-shogi-ai-public
+    runtime: docker
+    plan: free
+    region: singapore
+    autoDeployTrigger: commit
+    healthCheckPath: /api/health
+    envVars:
+      - key: ANALYSIS_PASSWORD
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: YANEURAOU_PATH
+        value: /opt/yaneuraou/YaneuraOu

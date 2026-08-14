@@ -1,0 +1,56 @@
+FROM ubuntu:24.04 AS engine-builder
+
+ARG DEBIAN_FRONTEND=noninteractive
+ARG YANEURAOU_REF=V9.00
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential ca-certificates git \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN git clone --depth 1 --branch "${YANEURAOU_REF}" \
+    https://github.com/yaneurao/YaneuraOu.git /src/YaneuraOu
+
+WORKDIR /src/YaneuraOu/source
+
+RUN make clean YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
+    && make -j2 tournament \
+        COMPILER=g++ \
+        YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
+        ENGINE_NAME=YaneuraOu-Material \
+        TARGET_CPU=SSE42 \
+    && install -D -m 0755 YaneuraOu-by-gcc /out/YaneuraOu
+
+
+FROM ubuntu:24.04
+
+ARG DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends python3 python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m venv /opt/venv
+
+ENV PATH="/opt/venv/bin:${PATH}" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    YANEURAOU_PATH=/opt/yaneuraou/YaneuraOu
+
+WORKDIR /app
+
+COPY requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY --from=engine-builder /out/YaneuraOu /opt/yaneuraou/YaneuraOu
+COPY --from=engine-builder /src/YaneuraOu/LICENSE /opt/yaneuraou/LICENSE
+COPY app.py ./
+COPY templates ./templates
+COPY static ./static
+
+RUN useradd --system --uid 10001 --create-home appuser \
+    && chown -R appuser:appuser /app /opt/yaneuraou
+
+USER appuser
+
+EXPOSE 10000
+
+CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 4 --timeout 120 app:app"]
