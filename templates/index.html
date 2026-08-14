@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="持ち駒が3枚になった側が負ける変則将棋をAIと対局できます。">
+  <title>変則将棋AI</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="app-shell">
+    <section id="mode-screen" class="mode-screen" aria-labelledby="mode-title">
+      <div class="mode-card">
+        <p class="eyebrow">HENSOKU SHOGI</p>
+        <h1 id="mode-title">変則将棋AI</h1>
+        <p class="rule-copy">持ち駒が3枚になった側が負け。<br>通常の将棋とは逆の駒取り感覚を楽しめます。</p>
+        <div class="mode-actions">
+          <button id="match-mode-button" class="primary-button" type="button">対局モード</button>
+          <button id="analysis-mode-button" class="secondary-button" type="button">検討モード</button>
+        </div>
+      </div>
+    </section>
+
+    <section id="game-screen" class="game-screen is-hidden" aria-label="変則将棋盤">
+      <header class="game-header">
+        <button id="back-to-modes" class="text-button" type="button">ゲームモード選択</button>
+        <div class="status-wrap">
+          <p id="mode-name" class="mode-name">対局モード</p>
+          <h1 id="turn-status" aria-live="polite">先手の番</h1>
+        </div>
+        <button id="reset-game" class="text-button align-right" type="button">初期配置に戻す</button>
+      </header>
+
+      <div class="game-layout">
+        <aside class="hand-panel white-hand" aria-label="後手の持ち駒">
+          <h2>後手<br>持ち駒</h2>
+          <div id="white-hand-pieces" class="hand-pieces"></div>
+          <p id="white-hand-count" class="hand-count">0 / 3</p>
+        </aside>
+
+        <div class="board-wrap">
+          <div id="board" class="board" role="grid" aria-label="9×9将棋盤"></div>
+          <p id="game-message" class="game-message" aria-live="assertive"></p>
+        </div>
+
+        <aside class="hand-panel black-hand" aria-label="先手の持ち駒">
+          <h2>先手<br>持ち駒</h2>
+          <div id="black-hand-pieces" class="hand-pieces"></div>
+          <p id="black-hand-count" class="hand-count">0 / 3</p>
+        </aside>
+      </div>
+
+      <section id="analysis-panel" class="analysis-panel is-hidden" aria-labelledby="analysis-title">
+        <div class="analysis-heading">
+          <div>
+            <p class="eyebrow">ANALYSIS</p>
+            <h2 id="analysis-title">検討</h2>
+          </div>
+          <p id="move-number" class="move-number">現在：第0手目</p>
+        </div>
+
+        <ol class="candidate-list">
+          <li><span>最善手</span><p id="candidate-1">解析待機中</p></li>
+          <li><span>次善手</span><p id="candidate-2">解析待機中</p></li>
+          <li><span>第3候補</span><p id="candidate-3">解析待機中</p></li>
+        </ol>
+
+        <div class="analysis-controls" aria-label="検討操作">
+          <button id="analysis-toggle" class="square-button" type="button" aria-label="検討開始">▶</button>
+          <button id="history-back" class="square-button" type="button" aria-label="1手戻る" disabled>←</button>
+          <button id="history-forward" class="square-button" type="button" aria-label="1手進む" disabled>→</button>
+        </div>
+      </section>
+
+      <footer class="site-footer">
+        <p>変則ルール：自分の持ち駒が3枚になったら負け</p>
+        <p>思考エンジン：<a href="https://github.com/yaneurao/YaneuraOu" rel="noopener noreferrer">YaneuraOu</a></p>
+      </footer>
+    </section>
+  </main>
+
+  <dialog id="password-dialog" class="password-dialog">
+    <form id="password-form" method="dialog">
+      <button id="close-password" class="dialog-close" type="button" aria-label="閉じる">×</button>
+      <p class="eyebrow">AUTHORIZED MODE</p>
+      <h2>検討モード</h2>
+      <p>検討モード使用権のパスワードを入力してください。</p>
+      <label for="analysis-password">パスワード</label>
+      <input id="analysis-password" name="password" type="password" autocomplete="current-password" required>
+      <p id="password-error" class="form-error" aria-live="polite"></p>
+      <button class="primary-button" type="submit">検討モードを開く</button>
+    </form>
+  </dialog>
+
+  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+</body>
+</html>
