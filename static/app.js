@@ -33,6 +33,7 @@ const elements = {
   historyForward: document.querySelector("#history-forward"),
   analysisElapsed: document.querySelector("#analysis-elapsed"),
   analysisNodes: document.querySelector("#analysis-nodes"),
+  analysisNps: document.querySelector("#analysis-nps"),
   candidates: [1, 2, 3].map((rank) => document.querySelector(`#candidate-${rank}`)),
   passwordDialog: document.querySelector("#password-dialog"),
   passwordForm: document.querySelector("#password-form"),
@@ -62,6 +63,7 @@ let analysisMetricTimer = null;
 let analysisStartedAt = null;
 let analysisElapsedMs = 0;
 let analysisNodes = 0;
+let latestAnalysisNps = 0;
 let hasAnalysisResult = false;
 
 
@@ -797,17 +799,24 @@ function formatNodeCount(value) {
 }
 
 
+function formatNodeSpeed(value) {
+  return `${formatNodeCount(value).replace("局面", "")}局面/秒`;
+}
+
+
 function updateAnalysisMetrics() {
   let elapsed = analysisElapsedMs;
   if (analysisRunning && analysisStartedAt != null) elapsed += performance.now() - analysisStartedAt;
   elements.analysisElapsed.textContent = `${(elapsed / 1000).toFixed(1)}秒`;
   elements.analysisNodes.textContent = formatNodeCount(analysisNodes);
+  elements.analysisNps.textContent = formatNodeSpeed(latestAnalysisNps);
 }
 
 
 function resetAnalysisProgress(running = analysisRunning) {
   analysisElapsedMs = 0;
   analysisNodes = 0;
+  latestAnalysisNps = 0;
   hasAnalysisResult = false;
   analysisStartedAt = running ? performance.now() : null;
   clearCandidates(running ? "解析中..." : "解析待機中");
@@ -831,10 +840,13 @@ async function requestAnalysis() {
     const result = await postJson("/api/analyze", { sfen: makeSfen(), movetime: 1500 });
     if (serial !== requestSerial || !analysisRunning || mode !== "analysis") return;
     analysisNodes += Math.max(0, Number(result.nodes) || 0);
+    latestAnalysisNps = Math.max(0, Number(result.nps) || 0);
     hasAnalysisResult = true;
     renderCandidates(result.candidates || []);
     updateAnalysisMetrics();
-    analysisTimer = window.setTimeout(requestAnalysis, 450);
+    // Start the next search immediately. The old 450 ms pause wasted almost
+    // one quarter of Render Free's already limited CPU time.
+    analysisTimer = window.setTimeout(requestAnalysis, 0);
   } catch (error) {
     if (serial !== requestSerial) return;
     clearCandidates(error.message);

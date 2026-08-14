@@ -14,12 +14,33 @@ from flask import Flask, jsonify, render_template, request, session
 
 
 BASE_DIR = Path(__file__).resolve().parent
-ENGINE_PATH = Path(
+CONFIGURED_ENGINE_PATH = Path(
     os.environ.get(
         "YANEURAOU_PATH",
         BASE_DIR / "engine" / "YaneuraOu",
     )
 )
+
+
+def cpu_flags():
+    try:
+        cpuinfo = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="ignore").lower()
+    except OSError:
+        return set()
+    match = re.search(r"^(?:flags|features)\s*:\s*(.+)$", cpuinfo, re.MULTILINE)
+    return set(match.group(1).split()) if match else set()
+
+
+AVX2_ENGINE_PATH = Path(
+    os.environ.get(
+        "YANEURAOU_AVX2_PATH",
+        CONFIGURED_ENGINE_PATH.with_name(f"{CONFIGURED_ENGINE_PATH.name}-avx2"),
+    )
+)
+CPU_FLAGS = cpu_flags()
+USE_AVX2_ENGINE = AVX2_ENGINE_PATH.is_file() and {"avx2", "bmi2"}.issubset(CPU_FLAGS)
+ENGINE_PATH = AVX2_ENGINE_PATH if USE_AVX2_ENGINE else CONFIGURED_ENGINE_PATH
+ENGINE_TARGET = "AVX2" if USE_AVX2_ENGINE else "SSE42"
 ANALYSIS_PASSWORD = os.environ.get("ANALYSIS_PASSWORD")
 
 app = Flask(__name__)
@@ -44,6 +65,7 @@ class YaneuraOu:
         self.output_queue = queue.Queue()
         self.reader_thread = None
         self.search_lock = threading.Lock()
+        self.current_multipv = None
 
     def _send(self, command: str):
         if self.process is None or self.process.poll() is not None:
@@ -103,11 +125,12 @@ class YaneuraOu:
         self._send("usi")
         self._read_until(lambda line: line == "usiok", 20)
         self._send("setoption name Threads value 1")
-        # YaneuraOu uses USI_Hash (not Stockfish's Hash). Keep it small enough
-        # for Render's 512 MB free instance.
-        self._send("setoption name USI_Hash value 16")
+        # A larger transposition table improves repeated analysis while staying
+        # comfortably inside Render Free's 512 MB memory limit.
+        self._send("setoption name USI_Hash value 128")
         self._send("isready")
         self._read_until(lambda line: line == "readyok", 30)
+        self.current_multipv = 1
 
     def stop(self):
         process = self.process
@@ -168,9 +191,11 @@ class YaneuraOu:
         with self.search_lock:
             self.start()
             self._drain_output()
-            self._send(f"setoption name MultiPV value {multipv}")
-            self._send("isready")
-            self._read_until(lambda line: line == "readyok", 10)
+            if self.current_multipv != multipv:
+                self._send(f"setoption name MultiPV value {multipv}")
+                self._send("isready")
+                self._read_until(lambda line: line == "readyok", 10)
+                self.current_multipv = multipv
             self._send(f"position sfen {sfen}")
             self._send(f"go movetime {movetime}")
 
@@ -299,7 +324,14 @@ def index():
 
 @app.get("/api/health")
 def health():
-    return jsonify({"ok": True})
+    return jsonify(
+        {
+            "ok": True,
+            "engine_target": ENGINE_TARGET,
+            "threads": 1,
+            "hash_mb": 128,
+        }
+    )
 
 
 @app.get("/api/auth-status")

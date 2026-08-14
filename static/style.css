@@ -398,8 +398,9 @@ a:focus-visible {
 
 .analysis-metrics {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
-  gap: 18px;
+  gap: 5px 16px;
   color: var(--muted);
   font-size: 0.84rem;
 }
@@ -669,7 +670,7 @@ a:focus-visible {
   }
 
   .analysis-metrics {
-    gap: 8px;
+    gap: 3px 8px;
     font-size: 0.68rem;
   }
 

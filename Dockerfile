@@ -16,9 +16,16 @@ RUN make clean YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
     && make -j2 tournament \
         COMPILER=g++ \
         YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
-        ENGINE_NAME=YaneuraOu-Material \
+        ENGINE_NAME=YaneuraOu-Material-SSE42 \
         TARGET_CPU=SSE42 \
-    && install -D -m 0755 YaneuraOu-by-gcc /out/YaneuraOu
+    && install -D -m 0755 YaneuraOu-by-gcc /out/YaneuraOu \
+    && make clean YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
+    && make -j2 tournament \
+        COMPILER=g++ \
+        YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
+        ENGINE_NAME=YaneuraOu-Material-AVX2 \
+        TARGET_CPU=AVX2 \
+    && install -D -m 0755 YaneuraOu-by-gcc /out/YaneuraOu-avx2
 
 
 FROM ubuntu:24.04
@@ -41,6 +48,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --from=engine-builder /out/YaneuraOu /opt/yaneuraou/YaneuraOu
+COPY --from=engine-builder /out/YaneuraOu-avx2 /opt/yaneuraou/YaneuraOu-avx2
 COPY app.py ./
 COPY templates ./templates
 COPY static ./static
