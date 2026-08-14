@@ -31,6 +31,8 @@ const elements = {
   analysisToggle: document.querySelector("#analysis-toggle"),
   historyBack: document.querySelector("#history-back"),
   historyForward: document.querySelector("#history-forward"),
+  analysisElapsed: document.querySelector("#analysis-elapsed"),
+  analysisNodes: document.querySelector("#analysis-nodes"),
   candidates: [1, 2, 3].map((rank) => document.querySelector(`#candidate-${rank}`)),
   passwordDialog: document.querySelector("#password-dialog"),
   passwordForm: document.querySelector("#password-form"),
@@ -56,6 +58,11 @@ let history = [];
 let historyIndex = -1;
 let requestSerial = 0;
 let analysisTimer = null;
+let analysisMetricTimer = null;
+let analysisStartedAt = null;
+let analysisElapsedMs = 0;
+let analysisNodes = 0;
+let hasAnalysisResult = false;
 
 
 function emptyHands() {
@@ -301,7 +308,9 @@ function saveHistory() {
 
 function restoreHistory(index) {
   if (index < 0 || index >= history.length) return;
-  stopAnalysis(false);
+  const resumeAnalysis = analysisRunning;
+  window.clearTimeout(analysisTimer);
+  analysisTimer = null;
   requestSerial += 1;
   const saved = history[index];
   board = cloneBoard(saved.board);
@@ -316,7 +325,9 @@ function restoreHistory(index) {
   legalTargets = [];
   aiThinking = false;
   historyIndex = index;
+  resetAnalysisProgress(resumeAnalysis);
   renderAll();
+  if (resumeAnalysis) requestAnalysis();
 }
 
 
@@ -368,7 +379,7 @@ function resetPosition() {
   aiThinking = false;
   history = [];
   historyIndex = -1;
-  clearCandidates("解析待機中");
+  resetAnalysisProgress(false);
   saveHistory();
   renderAll();
 }
@@ -378,6 +389,8 @@ function startMode(nextMode) {
   mode = nextMode;
   elements.modeScreen.classList.add("is-hidden");
   elements.gameScreen.classList.remove("is-hidden");
+  elements.gameScreen.classList.toggle("match-mode", mode === "match");
+  elements.gameScreen.classList.toggle("analysis-mode", mode === "analysis");
   elements.analysisPanel.classList.toggle("is-hidden", mode !== "analysis");
   elements.modeName.textContent = mode === "match" ? "対局モード" : "検討モード";
   resetPosition();
@@ -535,6 +548,7 @@ function completeMove() {
   turn = 1 - turn;
   checkGameEnd();
   saveHistory();
+  if (mode === "analysis") resetAnalysisProgress(analysisRunning);
   renderAll();
 
   if (!gameOver && mode === "match" && turn === 1) window.setTimeout(requestAiMove, 120);
@@ -775,15 +789,51 @@ function clearCandidates(text) {
 }
 
 
+function formatNodeCount(value) {
+  const nodes = Math.max(0, Math.floor(Number(value) || 0));
+  if (nodes >= 100_000_000) return `${(nodes / 100_000_000).toFixed(nodes >= 1_000_000_000 ? 1 : 2)}億局面`;
+  if (nodes >= 10_000) return `${(nodes / 10_000).toFixed(nodes >= 10_000_000 ? 0 : 1)}万局面`;
+  return `${nodes.toLocaleString("ja-JP")}局面`;
+}
+
+
+function updateAnalysisMetrics() {
+  let elapsed = analysisElapsedMs;
+  if (analysisRunning && analysisStartedAt != null) elapsed += performance.now() - analysisStartedAt;
+  elements.analysisElapsed.textContent = `${(elapsed / 1000).toFixed(1)}秒`;
+  elements.analysisNodes.textContent = formatNodeCount(analysisNodes);
+}
+
+
+function resetAnalysisProgress(running = analysisRunning) {
+  analysisElapsedMs = 0;
+  analysisNodes = 0;
+  hasAnalysisResult = false;
+  analysisStartedAt = running ? performance.now() : null;
+  clearCandidates(running ? "解析中..." : "解析待機中");
+  updateAnalysisMetrics();
+}
+
+
+function startMetricTimer() {
+  window.clearInterval(analysisMetricTimer);
+  analysisMetricTimer = window.setInterval(updateAnalysisMetrics, 100);
+  updateAnalysisMetrics();
+}
+
+
 async function requestAnalysis() {
   if (!analysisRunning || gameOver || mode !== "analysis") return;
   window.clearTimeout(analysisTimer);
   const serial = ++requestSerial;
-  clearCandidates("解析中...");
+  if (!hasAnalysisResult) clearCandidates("解析中...");
   try {
     const result = await postJson("/api/analyze", { sfen: makeSfen(), movetime: 1500 });
     if (serial !== requestSerial || !analysisRunning || mode !== "analysis") return;
+    analysisNodes += Math.max(0, Number(result.nodes) || 0);
+    hasAnalysisResult = true;
     renderCandidates(result.candidates || []);
+    updateAnalysisMetrics();
     analysisTimer = window.setTimeout(requestAnalysis, 450);
   } catch (error) {
     if (serial !== requestSerial) return;
@@ -796,6 +846,8 @@ async function requestAnalysis() {
 function startAnalysis() {
   if (gameOver || mode !== "analysis" || analysisRunning) return;
   analysisRunning = true;
+  resetAnalysisProgress(true);
+  startMetricTimer();
   elements.analysisToggle.textContent = "■";
   elements.analysisToggle.setAttribute("aria-label", "検討停止");
   requestAnalysis();
@@ -803,13 +855,20 @@ function startAnalysis() {
 
 
 function stopAnalysis(showWaiting = true) {
+  if (analysisRunning && analysisStartedAt != null) {
+    analysisElapsedMs += performance.now() - analysisStartedAt;
+  }
   analysisRunning = false;
+  analysisStartedAt = null;
   window.clearTimeout(analysisTimer);
   analysisTimer = null;
+  window.clearInterval(analysisMetricTimer);
+  analysisMetricTimer = null;
   requestSerial += 1;
   elements.analysisToggle.textContent = "▶";
   elements.analysisToggle.setAttribute("aria-label", "検討開始");
-  if (showWaiting && mode === "analysis") clearCandidates("解析停止中");
+  updateAnalysisMetrics();
+  if (showWaiting && mode === "analysis" && !hasAnalysisResult) clearCandidates("解析停止中");
 }
 
 
