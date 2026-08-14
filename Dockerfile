@@ -41,7 +41,6 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY --from=engine-builder /out/YaneuraOu /opt/yaneuraou/YaneuraOu
-COPY --from=engine-builder /src/YaneuraOu/LICENSE /opt/yaneuraou/LICENSE
 COPY app.py ./
 COPY templates ./templates
 COPY static ./static
