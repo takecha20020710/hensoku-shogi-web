@@ -59,22 +59,27 @@
           <p id="move-number" class="move-number">現在：第0手目</p>
         </div>
 
+        <div class="analysis-toolbar">
+          <div class="analysis-controls" aria-label="検討操作">
+            <button id="analysis-toggle" class="square-button" type="button" aria-label="検討開始">▶</button>
+            <button id="history-back" class="square-button" type="button" aria-label="1手戻る" disabled>←</button>
+            <button id="history-forward" class="square-button" type="button" aria-label="1手進む" disabled>→</button>
+          </div>
+          <div class="analysis-metrics" aria-label="解析状況">
+            <span>経過 <strong id="analysis-elapsed">0.0秒</strong></span>
+            <span>読み <strong id="analysis-nodes">0局面</strong></span>
+          </div>
+        </div>
+
         <ol class="candidate-list">
           <li><span>最善手</span><p id="candidate-1">解析待機中</p></li>
           <li><span>次善手</span><p id="candidate-2">解析待機中</p></li>
           <li><span>第3候補</span><p id="candidate-3">解析待機中</p></li>
         </ol>
-
-        <div class="analysis-controls" aria-label="検討操作">
-          <button id="analysis-toggle" class="square-button" type="button" aria-label="検討開始">▶</button>
-          <button id="history-back" class="square-button" type="button" aria-label="1手戻る" disabled>←</button>
-          <button id="history-forward" class="square-button" type="button" aria-label="1手進む" disabled>→</button>
-        </div>
       </section>
 
       <footer class="site-footer">
         <p>変則ルール：自分の持ち駒が3枚になったら負け</p>
-        <p>思考エンジン：<a href="https://github.com/yaneurao/YaneuraOu" rel="noopener noreferrer">YaneuraOu</a></p>
       </footer>
     </section>
   </main>
