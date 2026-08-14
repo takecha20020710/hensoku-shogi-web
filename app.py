@@ -103,7 +103,7 @@ class YaneuraOu:
         self._send("usi")
         self._read_until(lambda line: line == "usiok", 20)
         self._send("setoption name Threads value 1")
-        self._send("setoption name Hash value 64")
+        self._send("setoption name USI_Hash value 16")
         self._send("isready")
         self._read_until(lambda line: line == "readyok", 30)
 
