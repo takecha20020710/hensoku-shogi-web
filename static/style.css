@@ -808,6 +808,14 @@ a:focus-visible {
   line-height: 1.55;
 }
 
+.opening-line-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: #9a5b25;
+  font-size: 0.72rem;
+  line-height: 1.5;
+}
+
 .opening-delete-button {
   padding: 5px 9px;
   color: var(--accent);
