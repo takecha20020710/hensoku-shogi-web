@@ -408,6 +408,7 @@ def health():
             "engine_target": ENGINE_TARGET,
             "threads": 1,
             "hash_mb": 128,
+            "opening_admin_auth_version": 2,
         }
     )
 
