@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="持ち駒が3枚になった側が負ける変則将棋をAIと対局できます。">
   <title>変則将棋AI</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260815-3') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260815-4') }}">
 </head>
 <body>
   <main class="app-shell">
@@ -81,7 +81,7 @@
             <button id="history-end" class="square-button" type="button" aria-label="棋譜の最終局面へ進む" title="棋譜の最終局面へ進む" disabled>→|</button>
             <button id="copy-kifu" class="kifu-button" type="button">棋譜コピー</button>
             <button id="paste-kifu" class="kifu-button" type="button">棋譜貼付</button>
-            <button id="opening-manager" class="kifu-button admin-button" type="button">定跡登録・一覧</button>
+            <button id="opening-manager" class="kifu-button admin-button" type="button">定跡閲覧・編集</button>
           </div>
           <div class="analysis-metrics" aria-label="解析状況">
             <span>経過 <strong id="analysis-elapsed">0.0秒</strong></span>
@@ -141,19 +141,6 @@
     </form>
   </dialog>
 
-  <dialog id="password-dialog" class="password-dialog">
-    <form id="password-form" method="dialog">
-      <button id="close-password" class="dialog-close" type="button" aria-label="閉じる">×</button>
-      <p class="eyebrow">AUTHORIZED MODE</p>
-      <h2>検討モード</h2>
-      <p>検討モード使用権のパスワードを入力してください。</p>
-      <label for="analysis-password">パスワード</label>
-      <input id="analysis-password" name="password" type="password" autocomplete="current-password" required>
-      <p id="password-error" class="form-error" aria-live="polite"></p>
-      <button class="primary-button" type="submit">検討モードを開く</button>
-    </form>
-  </dialog>
-
   <dialog id="kifu-dialog" class="password-dialog kifu-dialog">
     <form method="dialog">
       <button id="close-kifu" class="dialog-close" type="button" aria-label="閉じる">×</button>
@@ -175,11 +162,11 @@
       <button id="close-opening-admin-login" class="dialog-close" type="button" aria-label="閉じる">×</button>
       <p class="eyebrow">OPENING ADMIN</p>
       <h2>定跡管理者認証</h2>
-      <p>定跡の登録・一覧・削除は管理者だけが利用できます。</p>
+      <p>定跡の閲覧・登録・削除は管理者だけが利用できます。</p>
       <label for="opening-admin-password">管理者パスワード</label>
       <input id="opening-admin-password" name="password" type="password" autocomplete="current-password" required>
       <p id="opening-admin-login-error" class="form-error" aria-live="polite"></p>
-      <button class="primary-button" type="submit">定跡管理を開く</button>
+      <button class="primary-button" type="submit">定跡閲覧・編集を開く</button>
     </form>
   </dialog>
 
@@ -187,7 +174,7 @@
     <form method="dialog">
       <button id="close-opening-manager" class="dialog-close" type="button" aria-label="閉じる">×</button>
       <p class="eyebrow">OPENING BOOK</p>
-      <h2>定跡登録・一覧</h2>
+      <h2>定跡閲覧・編集</h2>
       <p class="opening-help">検討盤で定跡を最後まで並べてから登録します。登録後はすぐに対局モードへ反映され、途中で違う手が指された場合は通常のAI思考へ切り替わります。</p>
 
       <div class="opening-register-grid">
@@ -209,12 +196,12 @@
       <p id="opening-storage-status" class="opening-storage-status"></p>
 
       <section class="opening-list-section" aria-labelledby="opening-list-title">
-        <h3 id="opening-list-title">登録済み定跡</h3>
+        <h3 id="opening-list-title">有効な定跡一覧</h3>
         <div id="opening-line-list" class="opening-line-list"></div>
       </section>
     </form>
   </dialog>
 
-  <script src="{{ url_for('static', filename='app.js', v='20260815-3') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v='20260815-4') }}" defer></script>
 </body>
 </html>
