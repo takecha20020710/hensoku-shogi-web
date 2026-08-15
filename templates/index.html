@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="持ち駒が3枚になった側が負ける変則将棋をAIと対局できます。">
   <title>変則将棋AI</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260815-1') }}">
 </head>
 <body>
   <main class="app-shell">
@@ -39,7 +39,20 @@
         </aside>
 
         <div class="board-wrap">
-          <div id="board" class="board" role="grid" aria-label="9×9将棋盤"></div>
+          <div class="board-stage">
+            <div id="board" class="board" role="grid" aria-label="9×9将棋盤"></div>
+            <svg id="move-arrows" class="move-arrows" viewBox="0 0 9 9" preserveAspectRatio="none" aria-hidden="true">
+              <defs>
+                <marker id="best-arrow-head" markerWidth="0.85" markerHeight="0.85" refX="0.62" refY="0.35" orient="auto" viewBox="0 0 0.7 0.7">
+                  <path d="M 0 0 L 0.7 0.35 L 0 0.7 z" fill="#e53935"></path>
+                </marker>
+                <marker id="second-arrow-head" markerWidth="0.85" markerHeight="0.85" refX="0.62" refY="0.35" orient="auto" viewBox="0 0 0.7 0.7">
+                  <path d="M 0 0 L 0.7 0.35 L 0 0.7 z" fill="#f0b90b"></path>
+                </marker>
+              </defs>
+              <g id="arrow-lines"></g>
+            </svg>
+          </div>
           <p id="game-message" class="game-message" aria-live="assertive"></p>
         </div>
 
@@ -64,6 +77,8 @@
             <button id="analysis-toggle" class="square-button" type="button" aria-label="検討開始">▶</button>
             <button id="history-back" class="square-button" type="button" aria-label="1手戻る" disabled>←</button>
             <button id="history-forward" class="square-button" type="button" aria-label="1手進む" disabled>→</button>
+            <button id="copy-kifu" class="kifu-button" type="button">棋譜コピー</button>
+            <button id="paste-kifu" class="kifu-button" type="button">棋譜貼付</button>
           </div>
           <div class="analysis-metrics" aria-label="解析状況">
             <span>経過 <strong id="analysis-elapsed">0.0秒</strong></span>
@@ -72,11 +87,36 @@
           </div>
         </div>
 
-        <ol class="candidate-list">
-          <li><span>最善手</span><p id="candidate-1">解析待機中</p></li>
-          <li><span>次善手</span><p id="candidate-2">解析待機中</p></li>
-          <li><span>第3候補</span><p id="candidate-3">解析待機中</p></li>
-        </ol>
+        <div class="evaluation-summary" aria-label="先手と後手の評価割合">
+          <div class="evaluation-percentages">
+            <strong id="sente-percentage">▲ 50%</strong>
+            <strong id="gote-percentage">△ 50%</strong>
+          </div>
+          <progress id="evaluation-bar" class="evaluation-bar" max="100" value="50">50%</progress>
+        </div>
+
+        <div class="candidate-table" role="table" aria-label="候補手一覧">
+          <div class="candidate-header" role="row">
+            <span role="columnheader">評価値</span>
+            <span role="columnheader">候補手</span>
+            <span role="columnheader">読み筋</span>
+          </div>
+          <div id="candidate-row-1" class="candidate-row best" role="row">
+            <strong id="candidate-score-1" class="candidate-score" role="cell">--</strong>
+            <div class="candidate-move" role="cell"><span class="candidate-rank">最善</span><strong id="candidate-move-1">解析待機中</strong></div>
+            <p id="candidate-pv-1" class="candidate-pv" role="cell"></p>
+          </div>
+          <div id="candidate-row-2" class="candidate-row second" role="row">
+            <strong id="candidate-score-2" class="candidate-score" role="cell">--</strong>
+            <div class="candidate-move" role="cell"><span class="candidate-rank">次善</span><strong id="candidate-move-2">解析待機中</strong></div>
+            <p id="candidate-pv-2" class="candidate-pv" role="cell"></p>
+          </div>
+          <div id="candidate-row-3" class="candidate-row third" role="row">
+            <strong id="candidate-score-3" class="candidate-score" role="cell">--</strong>
+            <div class="candidate-move" role="cell"><span class="candidate-rank">3</span><strong id="candidate-move-3">解析待機中</strong></div>
+            <p id="candidate-pv-3" class="candidate-pv" role="cell"></p>
+          </div>
+        </div>
       </section>
 
       <footer class="site-footer">
@@ -111,6 +151,22 @@
     </form>
   </dialog>
 
-  <script src="{{ url_for('static', filename='app.js') }}" defer></script>
+  <dialog id="kifu-dialog" class="password-dialog kifu-dialog">
+    <form method="dialog">
+      <button id="close-kifu" class="dialog-close" type="button" aria-label="閉じる">×</button>
+      <p class="eyebrow">KIFU</p>
+      <h2>棋譜のコピー・貼り付け</h2>
+      <p class="kifu-help">KIF・KI2・CSA・USI形式に対応しています。将棋アプリからコピーした棋譜を貼り付けてください。</p>
+      <label for="kifu-text">棋譜</label>
+      <textarea id="kifu-text" rows="12" placeholder="ここに棋譜を貼り付け"></textarea>
+      <p id="kifu-status" class="form-error" aria-live="polite"></p>
+      <div class="kifu-dialog-actions">
+        <button id="load-kifu" class="primary-button" type="button">棋譜を読み込む</button>
+        <button id="copy-kifu-text" class="secondary-button" type="button">現在の棋譜をコピー</button>
+      </div>
+    </form>
+  </dialog>
+
+  <script src="{{ url_for('static', filename='app.js', v='20260815-1') }}" defer></script>
 </body>
 </html>
