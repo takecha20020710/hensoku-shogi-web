@@ -50,13 +50,96 @@ diff --git a/source/engine/yaneuraou-engine/yaneuraou-search.cpp b/source/engine
 diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/evaluate_material.cpp
 --- a/source/eval/material/evaluate_material.cpp
 +++ b/source/eval/material/evaluate_material.cpp
-@@ -28,11 +28,30 @@ namespace Eval {
+@@ -4,6 +4,7 @@
+ #include "../../types.h"
+ #include "../../position.h"
+ #include "../../evaluate.h"
++#include "../../usioption.h"
+ 
+ // パラメーターの自動調整フレームワーク
+ #include <array>
+@@ -27,12 +27,106 @@ namespace Eval {
+ 	// これでも3990XだとR2300ぐらいある。
  	// (序盤を定跡などでうまく乗り切れれば)
  
- 	void add_options(OptionsMap&, ThreadPool&) {}
+-	void add_options(OptionsMap&, ThreadPool&) {}
 -	Value compute_eval(const Position& pos) {
 -		auto score = pos.state()->materialValue;
 -		ASSERT_LV5(pos.state()->materialValue == Eval::material(pos));
+-
+-		return pos.side_to_move() == BLACK ? score : -score;
+-	}
++	// 現行評価へ即座に戻せるよう、歩の実験評価はUSIオプションで分離する。
++	// default=falseなので、オプションを無効にした場合は従来の駒得評価と完全に同じになる。
++	bool variant_pawn_eval_enabled = false;
++
++	void add_options(OptionsMap& options, ThreadPool&)
++	{
++		options.add("VariantPawnEval", Option(false, [](const Option& option) {
++			variant_pawn_eval_enabled = int64_t(option) != 0;
++			return std::nullopt;
++		}));
++	}
++
++	// 歩に関する実験評価だけを先手視点の値で返す。
++	// 持ち駒1枚・2枚そのものには加点減点せず、持ち歩の「打ちやすさ」だけを見る。
++	Value variant_pawn_score(const Position& pos)
++	{
++		const auto color_score = [&](Color color) {
++			int score = 0;
++			const Color opponent = ~color;
++			const File opponent_king_file = file_of(pos.square<KING>(opponent));
++
++			// 序盤ほど、相手玉のいる筋の歩を前へ進める。
++			// 24手目までなだらかに弱めることで、評価の急変を避ける。
++			const int opening_scale = (std::max)(0, 24 - pos.game_ply());
++			if (opening_scale > 0)
++			{
++				Bitboard pawns = pos.pieces(color, PAWN);
++				while (pawns)
++				{
++					const Square sq = pawns.pop();
++					if (file_of(sq) != opponent_king_file)
++						continue;
++
++					const int advance = color == BLACK
++						? (std::max)(0, int(RANK_7) - int(rank_of(sq)))
++						: (std::max)(0, int(rank_of(sq)) - int(RANK_3));
++					score += advance * 28 * opening_scale / 24;
++				}
++			}
++
++			// 二歩で歩を打てる筋が限られる場合、持ち歩の使いにくさを評価する。
++			// 持ち歩の枚数では倍率を変えないため、1枚と2枚の差は評価しない。
++			if (hand_count(pos.hand_of(color), PAWN) > 0)
++			{
++				const Bitboard board_pawns = pos.pieces(color, PAWN);
++				int closest_open_file = 9;
++
++				for (int file_index = int(FILE_1); file_index < int(FILE_NB); ++file_index)
++				{
++					const File file = File(file_index);
++					if (board_pawns & file_bb(file))
++						continue;
++
++					closest_open_file = (std::min)(
++						closest_open_file,
++						std::abs(file_index - int(opponent_king_file)));
++				}
++
++				// 相手玉の筋へすぐ打てるなら減点なし。離れるほど使いにくい。
++				static constexpr int unusable_pawn_penalty[10] = {
++					0, 30, 55, 75, 90, 90, 90, 90, 90, 130
++				};
++				score -= unusable_pawn_penalty[closest_open_file];
++			}
++
++			return score;
++		};
++
++		return color_score(BLACK) - color_score(WHITE);
++	}
++
 +	Value compute_eval(const Position& pos)
 +	{
 +		const Color us = pos.side_to_move();
@@ -72,8 +155,8 @@ diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/e
 +				 + hand_count(hand, ROOK)
 +				 + hand_count(hand, GOLD);
 +		};
- 
--		return pos.side_to_move() == BLACK ? score : -score;
++
++		// 既存の持ち駒3枚ルールは変更しない。
 +		if (hand_total(them) >= 3)
 +			return Value(32000);
 +		if (hand_total(us) >= 3)
@@ -81,7 +164,11 @@ diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/e
 +
 +		auto score = pos.state()->materialValue;
 +		ASSERT_LV5(pos.state()->materialValue == Eval::material(pos));
++
++		if (variant_pawn_eval_enabled)
++			score += variant_pawn_score(pos);
++
 +		return us == BLACK ? score : -score;
- 	}
++	}
  
  #elif MATERIAL_LEVEL == 2

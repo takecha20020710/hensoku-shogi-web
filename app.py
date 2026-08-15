@@ -45,6 +45,13 @@ USE_AVX2_ENGINE = AVX2_ENGINE_PATH.is_file() and {"avx2", "bmi2"}.issubset(CPU_F
 ENGINE_PATH = AVX2_ENGINE_PATH if USE_AVX2_ENGINE else CONFIGURED_ENGINE_PATH
 ENGINE_TARGET = "AVX2" if USE_AVX2_ENGINE else "SSE42"
 OPENING_ADMIN_PASSWORD = os.environ.get("OPENING_ADMIN_PASSWORD")
+VARIANT_PAWN_EVAL_ENABLED = os.environ.get("VARIANT_PAWN_EVAL", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+    "experimental",
+}
 
 app = Flask(__name__)
 app.config.update(
@@ -142,6 +149,13 @@ class YaneuraOu:
         # A larger transposition table improves repeated analysis while staying
         # comfortably inside Render Free's 512 MB memory limit.
         self._send("setoption name USI_Hash value 128")
+        # The experimental profile changes only pawn-related positional terms.
+        # The engine-side default is false, so switching this environment value
+        # off immediately restores the exact baseline evaluation.
+        self._send(
+            "setoption name VariantPawnEval value "
+            + ("true" if VARIANT_PAWN_EVAL_ENABLED else "false")
+        )
         self._send("isready")
         self._read_until(lambda line: line == "readyok", 30)
         self.current_multipv = 1
@@ -410,6 +424,7 @@ def health():
             "hash_mb": 128,
             "opening_admin_auth_version": 2,
             "evaluation_graph_version": 1,
+            "variant_pawn_eval": VARIANT_PAWN_EVAL_ENABLED,
         }
     )
 

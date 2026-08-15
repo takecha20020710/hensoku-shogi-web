@@ -27,6 +27,9 @@
 - `OPENING_ADMIN_PASSWORD`: 定跡閲覧・編集用パスワード
 - `OPENING_BOOK_GITHUB_TOKEN`: データ専用ブランチへ定跡を永続保存するFine-grained token
 - `SECRET_KEY`: Renderが自動生成
+- `VARIANT_PAWN_EVAL`: `true`で歩だけの実験評価、`false`で従来評価へ即時復帰
+
+歩の実験評価は、持ち駒3枚の勝敗判定、持ち駒1・2枚の枚数評価、歩以外の駒価値、探索設定を変更しません。序盤の相手玉筋の歩の前進と、二歩により持ち歩を良い筋へ打ちにくい状態だけを評価します。弱くなった場合はRenderの`VARIANT_PAWN_EVAL`を`false`へ変更して再起動すれば、従来評価へ戻せます。
 
 画面から登録した定跡は`opening-book-data`ブランチの`opening_book.json`へ保存します。トークンは対象リポジトリのContentsを読み書きできる最小権限に限定してください。保存後は再デプロイを待たず、現在稼働中の対局へ即時反映されます。
 

@@ -3,6 +3,7 @@ from unittest.mock import ANY, patch
 
 os.environ.setdefault("OPENING_ADMIN_PASSWORD", "test-password")
 os.environ.setdefault("SECRET_KEY", "test-secret")
+os.environ.setdefault("VARIANT_PAWN_EVAL", "true")
 
 import app as webapp
 from opening_book import OpeningBook, OpeningBookError
@@ -56,6 +57,7 @@ def test_index_and_health():
     assert health["threads"] == 1
     assert health["hash_mb"] == 128
     assert health["engine_target"] in ("SSE42", "AVX2")
+    assert health["variant_pawn_eval"] is True
 
 
 def test_analysis_is_public_and_admin_is_separate():
