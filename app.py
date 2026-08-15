@@ -43,8 +43,7 @@ CPU_FLAGS = cpu_flags()
 USE_AVX2_ENGINE = AVX2_ENGINE_PATH.is_file() and {"avx2", "bmi2"}.issubset(CPU_FLAGS)
 ENGINE_PATH = AVX2_ENGINE_PATH if USE_AVX2_ENGINE else CONFIGURED_ENGINE_PATH
 ENGINE_TARGET = "AVX2" if USE_AVX2_ENGINE else "SSE42"
-ANALYSIS_PASSWORD = os.environ.get("ANALYSIS_PASSWORD")
-OPENING_ADMIN_PASSWORD = os.environ.get("OPENING_ADMIN_PASSWORD") or ANALYSIS_PASSWORD
+OPENING_ADMIN_PASSWORD = os.environ.get("OPENING_ADMIN_PASSWORD")
 
 app = Flask(__name__)
 app.config.update(
@@ -365,7 +364,7 @@ def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
-    if request.path.startswith("/api/opening-admin") or request.path in ("/api/login", "/api/auth-status"):
+    if request.path.startswith("/api/opening-admin") or request.path == "/api/auth-status":
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -392,38 +391,15 @@ def health():
 def auth_status():
     return jsonify(
         {
-            "authorized": bool(session.get("analysis_authorized")),
+            # 検討モードは全員が利用可能。旧版JSとの互換性のためauthorizedも返す。
+            "authorized": True,
             "opening_admin": bool(session.get("opening_admin_authorized")),
         }
     )
 
 
-@app.post("/api/login")
-def analysis_login():
-    if not ANALYSIS_PASSWORD:
-        return jsonify({"error": "検討パスワードが未設定です。"}), 503
-    ip = client_ip()
-    if login_blocked(ip):
-        return jsonify({"error": "入力回数が多すぎます。15分後に再試行してください。"}), 429
-
-    password = json_body().get("password", "")
-    if not isinstance(password, str) or not hmac.compare_digest(password, ANALYSIS_PASSWORD):
-        record_failed_login(ip)
-        return jsonify({"error": "パスワードが違います。"}), 401
-
-    with failed_logins_lock:
-        failed_logins.pop(ip, None)
-    session.clear()
-    session.permanent = True
-    session["analysis_authorized"] = True
-    if OPENING_ADMIN_PASSWORD and hmac.compare_digest(password, OPENING_ADMIN_PASSWORD):
-        session["opening_admin_authorized"] = True
-    ensure_search_client_id()
-    return jsonify({"ok": True})
-
-
 @app.post("/api/logout")
-def analysis_logout():
+def logout():
     session.clear()
     return jsonify({"ok": True})
 
@@ -553,8 +529,6 @@ def think():
 
 @app.post("/api/analyze")
 def analyze():
-    if not session.get("analysis_authorized"):
-        return jsonify({"error": "検討モードの認証が必要です。"}), 403
     return search_request(3)
 
 
