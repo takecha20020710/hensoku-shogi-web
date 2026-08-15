@@ -58,7 +58,7 @@ diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/e
  
  // パラメーターの自動調整フレームワーク
  #include <array>
-@@ -27,12 +27,106 @@ namespace Eval {
+@@ -27,12 +27,104 @@ namespace Eval {
  	// これでも3990XだとR2300ぐらいある。
  	// (序盤を定跡などでうまく乗り切れれば)
  
@@ -95,13 +95,11 @@ diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/e
 +			const int opening_scale = (std::max)(0, 24 - pos.game_ply());
 +			if (opening_scale > 0)
 +			{
-+				Bitboard pawns = pos.pieces(color, PAWN);
-+				while (pawns)
++				// 二歩の規則上、この筋の不成歩は最大1枚。全歩を走査しない。
++				Bitboard pawns = pos.pieces(color, PAWN) & file_bb(opponent_king_file);
++				if (pawns)
 +				{
 +					const Square sq = pawns.pop();
-+					if (file_of(sq) != opponent_king_file)
-+						continue;
-+
 +					const int advance = color == BLACK
 +						? (std::max)(0, int(RANK_7) - int(rank_of(sq)))
 +						: (std::max)(0, int(rank_of(sq)) - int(RANK_3));
