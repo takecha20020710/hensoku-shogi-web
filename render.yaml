@@ -7,8 +7,6 @@ services:
     autoDeployTrigger: commit
     healthCheckPath: /api/health
     envVars:
-      - key: ANALYSIS_PASSWORD
-        sync: false
       - key: OPENING_ADMIN_PASSWORD
         sync: false
       - key: OPENING_BOOK_GITHUB_TOKEN
