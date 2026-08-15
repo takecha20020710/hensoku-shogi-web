@@ -12,6 +12,8 @@ from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
 
+from opening_book import OpeningBook, OpeningBookError, USI_MOVE_RE
+
 
 BASE_DIR = Path(__file__).resolve().parent
 CONFIGURED_ENGINE_PATH = Path(
@@ -42,6 +44,7 @@ USE_AVX2_ENGINE = AVX2_ENGINE_PATH.is_file() and {"avx2", "bmi2"}.issubset(CPU_F
 ENGINE_PATH = AVX2_ENGINE_PATH if USE_AVX2_ENGINE else CONFIGURED_ENGINE_PATH
 ENGINE_TARGET = "AVX2" if USE_AVX2_ENGINE else "SSE42"
 ANALYSIS_PASSWORD = os.environ.get("ANALYSIS_PASSWORD")
+OPENING_ADMIN_PASSWORD = os.environ.get("OPENING_ADMIN_PASSWORD") or ANALYSIS_PASSWORD
 
 app = Flask(__name__)
 app.config.update(
@@ -272,6 +275,7 @@ class YaneuraOu:
 
 
 engine = YaneuraOu(ENGINE_PATH)
+opening_book = OpeningBook()
 atexit.register(engine.stop)
 
 
@@ -361,6 +365,8 @@ def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
+    if request.path.startswith("/api/opening-admin") or request.path in ("/api/login", "/api/auth-status"):
+        response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -384,7 +390,12 @@ def health():
 
 @app.get("/api/auth-status")
 def auth_status():
-    return jsonify({"authorized": bool(session.get("analysis_authorized"))})
+    return jsonify(
+        {
+            "authorized": bool(session.get("analysis_authorized")),
+            "opening_admin": bool(session.get("opening_admin_authorized")),
+        }
+    )
 
 
 @app.post("/api/login")
@@ -405,6 +416,8 @@ def analysis_login():
     session.clear()
     session.permanent = True
     session["analysis_authorized"] = True
+    if OPENING_ADMIN_PASSWORD and hmac.compare_digest(password, OPENING_ADMIN_PASSWORD):
+        session["opening_admin_authorized"] = True
     ensure_search_client_id()
     return jsonify({"ok": True})
 
@@ -413,6 +426,102 @@ def analysis_login():
 def analysis_logout():
     session.clear()
     return jsonify({"ok": True})
+
+
+def valid_opening_history(value):
+    return (
+        isinstance(value, list)
+        and len(value) <= 200
+        and all(isinstance(move, str) and USI_MOVE_RE.fullmatch(move) for move in value)
+    )
+
+
+@app.post("/api/opening-move")
+def opening_move():
+    data = json_body()
+    try:
+        ai_side = int(data.get("ai_side"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "AI側が不正です。"}), 400
+    history = data.get("history")
+    if ai_side not in (0, 1) or not valid_opening_history(history):
+        return jsonify({"error": "定跡照合データが不正です。"}), 400
+    return jsonify({"move": opening_book.match(ai_side, history)})
+
+
+@app.get("/api/opening-admin/status")
+def opening_admin_status():
+    return jsonify(
+        {
+            "authorized": bool(session.get("opening_admin_authorized")),
+            "persistence_ready": opening_book.persistence_ready,
+        }
+    )
+
+
+@app.post("/api/opening-admin/login")
+def opening_admin_login():
+    if not OPENING_ADMIN_PASSWORD:
+        return jsonify({"error": "定跡管理パスワードが未設定です。"}), 503
+    ip = client_ip()
+    if login_blocked(ip):
+        return jsonify({"error": "入力回数が多すぎます。15分後に再試行してください。"}), 429
+    password = json_body().get("password", "")
+    if not isinstance(password, str) or not hmac.compare_digest(password, OPENING_ADMIN_PASSWORD):
+        record_failed_login(ip)
+        return jsonify({"error": "パスワードが違います。"}), 401
+    with failed_logins_lock:
+        failed_logins.pop(ip, None)
+    session.permanent = True
+    session["opening_admin_authorized"] = True
+    ensure_search_client_id()
+    return jsonify({"ok": True})
+
+
+def require_opening_admin():
+    if not session.get("opening_admin_authorized"):
+        return jsonify({"error": "定跡管理者の認証が必要です。"}), 403
+    return None
+
+
+@app.get("/api/opening-admin/lines")
+def opening_admin_lines():
+    denied = require_opening_admin()
+    if denied:
+        return denied
+    return jsonify(
+        {
+            "lines": opening_book.list_lines(),
+            "persistence_ready": opening_book.persistence_ready,
+        }
+    )
+
+
+@app.post("/api/opening-admin/lines")
+def opening_admin_add_line():
+    denied = require_opening_admin()
+    if denied:
+        return denied
+    data = json_body()
+    try:
+        line = opening_book.add_line(data.get("name"), data.get("ai_side"), data.get("moves"))
+        return jsonify({"ok": True, "line": line, "lines": opening_book.list_lines()})
+    except OpeningBookError as exc:
+        return jsonify({"error": str(exc)}), 503 if not opening_book.persistence_ready else 400
+
+
+@app.delete("/api/opening-admin/lines/<line_id>")
+def opening_admin_delete_line(line_id):
+    denied = require_opening_admin()
+    if denied:
+        return denied
+    if not re.fullmatch(r"[0-9a-f]{16}", line_id):
+        return jsonify({"error": "定跡IDが不正です。"}), 400
+    try:
+        opening_book.delete_line(line_id)
+        return jsonify({"ok": True, "lines": opening_book.list_lines()})
+    except OpeningBookError as exc:
+        return jsonify({"error": str(exc)}), 503 if not opening_book.persistence_ready else 400
 
 
 def search_request(multipv):
