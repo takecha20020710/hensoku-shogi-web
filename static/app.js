@@ -69,11 +69,6 @@ const elements = {
   chooseSente: document.querySelector("#choose-sente"),
   chooseGote: document.querySelector("#choose-gote"),
   closeSide: document.querySelector("#close-side"),
-  passwordDialog: document.querySelector("#password-dialog"),
-  passwordForm: document.querySelector("#password-form"),
-  passwordInput: document.querySelector("#analysis-password"),
-  passwordError: document.querySelector("#password-error"),
-  closePassword: document.querySelector("#close-password"),
   openingAdminLoginDialog: document.querySelector("#opening-admin-login-dialog"),
   openingAdminLoginForm: document.querySelector("#opening-admin-login-form"),
   openingAdminPassword: document.querySelector("#opening-admin-password"),
@@ -1370,6 +1365,12 @@ function formatOpeningMoves(moves) {
   const result = [];
   for (let index = 0; index < moves.length; index += 1) {
     const move = moves[index];
+    if (move == null) {
+      result.push(`${index + 1}. ${virtualTurn === 0 ? "▲" : "△"}（プレイヤー任意手）`);
+      previousDestination = null;
+      virtualTurn = 1 - virtualTurn;
+      continue;
+    }
     try {
       result.push(`${index + 1}. ${virtualTurn === 0 ? "▲" : "△"}${japaneseMove(move, virtualBoard, previousDestination)}`);
       previousDestination = applyVirtualMove(virtualBoard, virtualHands, virtualTurn, move);
@@ -1407,38 +1408,49 @@ function renderManagedOpeningLines() {
     return;
   }
 
-  for (const line of [...managedOpeningLines].reverse()) {
+  const customLines = managedOpeningLines.filter((line) => !line.built_in).reverse();
+  const builtInLines = managedOpeningLines.filter((line) => line.built_in);
+  for (const line of [...customLines, ...builtInLines]) {
     const item = document.createElement("article");
     item.className = "opening-line-item";
 
     const title = document.createElement("h4");
     title.className = "opening-line-title";
-    title.textContent = `${line.name}（AI：${Number(line.ai_side) === 0 ? "先手" : "後手"}）`;
-
-    const deleteButton = document.createElement("button");
-    deleteButton.type = "button";
-    deleteButton.className = "opening-delete-button";
-    deleteButton.textContent = "削除";
-    deleteButton.addEventListener("click", async () => {
-      if (!window.confirm(`「${line.name}」を削除しますか？`)) return;
-      deleteButton.disabled = true;
-      setOpeningManagerStatus("削除中...");
-      try {
-        const result = await deleteJson(`/api/opening-admin/lines/${line.id}`);
-        managedOpeningLines = result.lines || [];
-        renderManagedOpeningLines();
-        setOpeningManagerStatus("定跡を削除し、対局へ反映しました。", true);
-      } catch (error) {
-        deleteButton.disabled = false;
-        setOpeningManagerStatus(error.message);
-      }
-    });
+    title.textContent = `${line.built_in ? "【組み込み】" : "【画面登録】"}${line.name}（AI：${Number(line.ai_side) === 0 ? "先手" : "後手"}）`;
 
     const moves = document.createElement("p");
     moves.className = "opening-line-moves";
     moves.textContent = formatOpeningMoves(line.moves);
 
-    item.append(title, deleteButton, moves);
+    item.append(title);
+    if (!line.built_in) {
+      const deleteButton = document.createElement("button");
+      deleteButton.type = "button";
+      deleteButton.className = "opening-delete-button";
+      deleteButton.textContent = "削除";
+      deleteButton.addEventListener("click", async () => {
+        if (!window.confirm(`「${line.name}」を削除しますか？`)) return;
+        deleteButton.disabled = true;
+        setOpeningManagerStatus("削除中...");
+        try {
+          const result = await deleteJson(`/api/opening-admin/lines/${line.id}`);
+          managedOpeningLines = result.lines || [];
+          renderManagedOpeningLines();
+          setOpeningManagerStatus("定跡を削除し、対局へ反映しました。", true);
+        } catch (error) {
+          deleteButton.disabled = false;
+          setOpeningManagerStatus(error.message);
+        }
+      });
+      item.append(deleteButton);
+    }
+    item.append(moves);
+    if (line.note) {
+      const note = document.createElement("p");
+      note.className = "opening-line-note";
+      note.textContent = `注：${line.note}`;
+      item.append(note);
+    }
     elements.openingLineList.append(item);
   }
 }
@@ -1612,21 +1624,8 @@ function stopAnalysis(showWaiting = true) {
 }
 
 
-async function openAnalysisMode() {
-  try {
-    const response = await fetch("/api/auth-status");
-    const data = await response.json();
-    if (data.authorized) {
-      startMode("analysis");
-      return;
-    }
-  } catch (_) {
-    // パスワード入力へ進む
-  }
-  elements.passwordError.textContent = "";
-  elements.passwordInput.value = "";
-  elements.passwordDialog.showModal();
-  window.setTimeout(() => elements.passwordInput.focus(), 0);
+function openAnalysisMode() {
+  startMode("analysis");
 }
 
 
@@ -1658,7 +1657,6 @@ elements.loadKifu.addEventListener("click", () => {
     setKifuStatus(error.message || "棋譜を読み込めませんでした。");
   }
 });
-elements.closePassword.addEventListener("click", () => elements.passwordDialog.close());
 elements.closeOpeningAdminLogin.addEventListener("click", () => elements.openingAdminLoginDialog.close());
 elements.closeOpeningManager.addEventListener("click", () => elements.openingManagerDialog.close());
 elements.registerOpeningLine.addEventListener("click", registerCurrentOpening);
@@ -1675,23 +1673,6 @@ elements.openingAdminLoginForm.addEventListener("submit", async (event) => {
     elements.openingAdminPassword.select();
   }
 });
-elements.passwordForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  elements.passwordError.textContent = "";
-  try {
-    await postJson("/api/login", { password: elements.passwordInput.value });
-    elements.passwordDialog.close();
-    startMode("analysis");
-  } catch (error) {
-    elements.passwordError.textContent = error.message;
-    elements.passwordInput.select();
-  }
-});
-
-elements.passwordDialog.addEventListener("cancel", () => {
-  elements.passwordError.textContent = "";
-});
-
 elements.kifuDialog.addEventListener("cancel", () => setKifuStatus(""));
 elements.openingAdminLoginDialog.addEventListener("cancel", () => {
   elements.openingAdminLoginError.textContent = "";
