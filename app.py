@@ -58,6 +58,10 @@ class EngineError(RuntimeError):
     pass
 
 
+class SearchSuperseded(EngineError):
+    pass
+
+
 class YaneuraOu:
     def __init__(self, executable: Path):
         self.executable = executable
@@ -65,13 +69,20 @@ class YaneuraOu:
         self.output_queue = queue.Queue()
         self.reader_thread = None
         self.search_lock = threading.Lock()
+        self.send_lock = threading.Lock()
+        self.search_state_lock = threading.Lock()
+        self.next_search_ticket = 0
+        self.latest_ticket_by_owner = {}
+        self.active_search_owner = None
+        self.active_search_ticket = None
         self.current_multipv = None
 
     def _send(self, command: str):
-        if self.process is None or self.process.poll() is not None:
-            raise EngineError("AIエンジンが停止しています。")
-        self.process.stdin.write(command + "\n")
-        self.process.stdin.flush()
+        with self.send_lock:
+            if self.process is None or self.process.poll() is not None:
+                raise EngineError("AIエンジンが停止しています。")
+            self.process.stdin.write(command + "\n")
+            self.process.stdin.flush()
 
     def _reader(self):
         try:
@@ -144,6 +155,18 @@ class YaneuraOu:
         except Exception:
             process.kill()
 
+    def _prepare_search(self, owner_id: str):
+        with self.search_state_lock:
+            self.next_search_ticket += 1
+            ticket = self.next_search_ticket
+            self.latest_ticket_by_owner[owner_id] = ticket
+            if self.active_search_owner == owner_id:
+                try:
+                    self._send("stop")
+                except EngineError:
+                    pass
+            return ticket
+
     @staticmethod
     def _parse_info(line: str):
         parts = line.split()
@@ -187,49 +210,65 @@ class YaneuraOu:
             return None
         return result
 
-    def search(self, sfen: str, movetime: int, multipv: int):
+    def search(self, sfen: str, movetime: int, multipv: int, owner_id: str):
+        ticket = self._prepare_search(owner_id)
         with self.search_lock:
             self.start()
             self._drain_output()
-            if self.current_multipv != multipv:
-                self._send(f"setoption name MultiPV value {multipv}")
-                self._send("isready")
-                self._read_until(lambda line: line == "readyok", 10)
-                self.current_multipv = multipv
-            self._send(f"position sfen {sfen}")
-            self._send(f"go movetime {movetime}")
+            with self.search_state_lock:
+                if self.latest_ticket_by_owner.get(owner_id) != ticket:
+                    raise SearchSuperseded("新しい局面の解析を優先しました。")
+                self.active_search_owner = owner_id
+                self.active_search_ticket = ticket
+            try:
+                if self.current_multipv != multipv:
+                    self._send(f"setoption name MultiPV value {multipv}")
+                    self._send("isready")
+                    self._read_until(lambda line: line == "readyok", 10)
+                    self.current_multipv = multipv
+                self._send(f"position sfen {sfen}")
+                with self.search_state_lock:
+                    if self.latest_ticket_by_owner.get(owner_id) != ticket:
+                        raise SearchSuperseded("新しい局面の解析を優先しました。")
+                    # 状態ロック中にgoを送ることで、後続のstopが必ずgoの後に届く。
+                    self._send(f"go movetime {movetime}")
 
-            bestmove = None
-            candidates = {}
-            deadline = time.monotonic() + (movetime / 1000) + 20
+                bestmove = None
+                candidates = {}
+                deadline = time.monotonic() + (movetime / 1000) + 20
 
-            while time.monotonic() < deadline:
-                remaining = max(0.01, deadline - time.monotonic())
-                try:
-                    line = self.output_queue.get(timeout=remaining)
-                except queue.Empty as exc:
-                    raise EngineError("AIの思考がタイムアウトしました。") from exc
-                if line is None:
-                    raise EngineError("AIエンジンが予期せず終了しました。")
-                if line.startswith("bestmove"):
-                    parts = line.split()
-                    bestmove = parts[1] if len(parts) > 1 else "resign"
-                    break
-                parsed = self._parse_info(line)
-                if parsed is not None:
-                    candidates[parsed["multipv"]] = parsed
+                while time.monotonic() < deadline:
+                    remaining = max(0.01, deadline - time.monotonic())
+                    try:
+                        line = self.output_queue.get(timeout=remaining)
+                    except queue.Empty as exc:
+                        raise EngineError("AIの思考がタイムアウトしました。") from exc
+                    if line is None:
+                        raise EngineError("AIエンジンが予期せず終了しました。")
+                    if line.startswith("bestmove"):
+                        parts = line.split()
+                        bestmove = parts[1] if len(parts) > 1 else "resign"
+                        break
+                    parsed = self._parse_info(line)
+                    if parsed is not None:
+                        candidates[parsed["multipv"]] = parsed
 
-            if bestmove is None:
-                try:
-                    self._send("stop")
-                except EngineError:
-                    pass
-                raise EngineError("AIから指し手を取得できませんでした。")
+                if bestmove is None:
+                    try:
+                        self._send("stop")
+                    except EngineError:
+                        pass
+                    raise EngineError("AIから指し手を取得できませんでした。")
 
-            ordered = [candidates[key] for key in sorted(candidates) if key <= multipv]
-            nodes = max((candidate.get("nodes") or 0 for candidate in ordered), default=0)
-            nps = max((candidate.get("nps") or 0 for candidate in ordered), default=0)
-            return {"bestmove": bestmove, "candidates": ordered, "nodes": nodes, "nps": nps}
+                ordered = [candidates[key] for key in sorted(candidates) if key <= multipv]
+                nodes = max((candidate.get("nodes") or 0 for candidate in ordered), default=0)
+                nps = max((candidate.get("nps") or 0 for candidate in ordered), default=0)
+                return {"bestmove": bestmove, "candidates": ordered, "nodes": nodes, "nps": nps}
+            finally:
+                with self.search_state_lock:
+                    if self.active_search_ticket == ticket:
+                        self.active_search_owner = None
+                        self.active_search_ticket = None
 
 
 engine = YaneuraOu(ENGINE_PATH)
@@ -304,6 +343,14 @@ def record_failed_login(ip):
         failed_logins[ip].append(time.monotonic())
 
 
+def ensure_search_client_id():
+    owner_id = session.get("search_client_id")
+    if not owner_id:
+        owner_id = secrets.token_urlsafe(18)
+        session["search_client_id"] = owner_id
+    return owner_id
+
+
 @app.after_request
 def security_headers(response):
     response.headers["Content-Security-Policy"] = (
@@ -319,6 +366,7 @@ def security_headers(response):
 
 @app.get("/")
 def index():
+    ensure_search_client_id()
     return render_template("index.html")
 
 
@@ -357,6 +405,7 @@ def analysis_login():
     session.clear()
     session.permanent = True
     session["analysis_authorized"] = True
+    ensure_search_client_id()
     return jsonify({"ok": True})
 
 
@@ -378,7 +427,9 @@ def search_request(multipv):
     movetime = max(300, min(movetime, 5000))
 
     try:
-        return jsonify(engine.search(sfen, movetime, multipv))
+        return jsonify(engine.search(sfen, movetime, multipv, ensure_search_client_id()))
+    except SearchSuperseded as exc:
+        return jsonify({"error": str(exc)}), 409
     except EngineError as exc:
         return jsonify({"error": str(exc)}), 503
     except Exception:
