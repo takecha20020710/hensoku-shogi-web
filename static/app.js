@@ -21,6 +21,18 @@ const CSA_PIECES = {
 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
+// 対局モード用の固定序盤。pattern はその時点までのUSI指し手で、nullは任意の手。
+// 上から順に照合するため、例外を通常手より先に置けば簡単に追加・変更できる。
+const MATCH_OPENING_RULES = [
+  { aiSide: 0, pattern: [], move: "5g5f" },
+  { aiSide: 0, pattern: ["5g5f", null], move: "2h5h" },
+  { aiSide: 1, pattern: [null], move: "5c5d" },
+  { aiSide: 1, pattern: ["7g7f", "5c5d", "8h3c"], move: "2b3c" },
+  { aiSide: 1, pattern: ["7g7f", "5c5d", "8h3c+"], move: "2b3c" },
+  { aiSide: 1, pattern: ["5g5f", "5c5d", "5f5e"], move: "5d5e" },
+  { aiSide: 1, pattern: [null, "5c5d", null], move: "8b5b" },
+];
+
 const elements = {
   modeScreen: document.querySelector("#mode-screen"),
   gameScreen: document.querySelector("#game-screen"),
@@ -40,8 +52,10 @@ const elements = {
   analysisPanel: document.querySelector("#analysis-panel"),
   moveNumber: document.querySelector("#move-number"),
   analysisToggle: document.querySelector("#analysis-toggle"),
+  historyStart: document.querySelector("#history-start"),
   historyBack: document.querySelector("#history-back"),
   historyForward: document.querySelector("#history-forward"),
+  historyEnd: document.querySelector("#history-end"),
   analysisElapsed: document.querySelector("#analysis-elapsed"),
   analysisNodes: document.querySelector("#analysis-nodes"),
   analysisNps: document.querySelector("#analysis-nps"),
@@ -92,6 +106,7 @@ let historyIndex = -1;
 let requestSerial = 0;
 let analysisTimer = null;
 let analysisMetricTimer = null;
+let analysisAbortController = null;
 let analysisStartedAt = null;
 let analysisElapsedMs = 0;
 let analysisNodes = 0;
@@ -348,6 +363,7 @@ function restoreHistory(index) {
   const resumeAnalysis = analysisRunning;
   window.clearTimeout(analysisTimer);
   analysisTimer = null;
+  cancelAnalysisRequest();
   requestSerial += 1;
   const saved = history[index];
   board = cloneBoard(saved.board);
@@ -370,8 +386,12 @@ function restoreHistory(index) {
 
 
 function updateHistoryButtons() {
-  elements.historyBack.disabled = historyIndex <= 0;
-  elements.historyForward.disabled = historyIndex >= history.length - 1;
+  const atStart = historyIndex <= 0;
+  const atEnd = historyIndex >= history.length - 1;
+  elements.historyStart.disabled = atStart;
+  elements.historyBack.disabled = atStart;
+  elements.historyForward.disabled = atEnd;
+  elements.historyEnd.disabled = atEnd;
 }
 
 
@@ -387,6 +407,17 @@ function aiSide() {
 
 function isAiTurn() {
   return mode === "match" && turn === aiSide();
+}
+
+
+function openingPatternMatches(pattern) {
+  return pattern.length === moveList.length && pattern.every((move, index) => move == null || move === moveList[index]);
+}
+
+
+function fixedAiOpeningMove() {
+  const side = aiSide();
+  return MATCH_OPENING_RULES.find((rule) => rule.aiSide === side && openingPatternMatches(rule.pattern))?.move || null;
 }
 
 
@@ -800,11 +831,12 @@ function applyUsiMove(move) {
 }
 
 
-async function postJson(url, body) {
+async function postJson(url, body, signal = null) {
   const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal,
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) throw new Error(data.error || "通信に失敗しました。");
@@ -819,6 +851,14 @@ async function requestAiMove() {
   gameMessage = "";
   renderAll();
   try {
+    const openingMove = fixedAiOpeningMove();
+    if (openingMove) {
+      if (!isLegalStateMove(board, hands, turn, openingMove)) throw new Error(`固定序盤の指し手が不正です：${openingMove}`);
+      if (serial !== requestSerial || mode !== "match") return;
+      aiThinking = false;
+      applyUsiMove(openingMove);
+      return;
+    }
     const result = await postJson("/api/think", { sfen: makeSfen(), movetime: 5000 });
     if (serial !== requestSerial || mode !== "match") return;
     aiThinking = false;
@@ -1336,13 +1376,24 @@ function startMetricTimer() {
 }
 
 
+function cancelAnalysisRequest() {
+  if (!analysisAbortController) return;
+  analysisAbortController.abort();
+  analysisAbortController = null;
+}
+
+
 async function requestAnalysis() {
   if (!analysisRunning || gameOver || mode !== "analysis") return;
   window.clearTimeout(analysisTimer);
+  cancelAnalysisRequest();
   const serial = ++requestSerial;
+  const controller = new AbortController();
+  analysisAbortController = controller;
+  const movetime = hasAnalysisResult ? 1500 : 300;
   if (!hasAnalysisResult) clearCandidates("解析中...");
   try {
-    const result = await postJson("/api/analyze", { sfen: makeSfen(), movetime: 1500 });
+    const result = await postJson("/api/analyze", { sfen: makeSfen(), movetime }, controller.signal);
     if (serial !== requestSerial || !analysisRunning || mode !== "analysis") return;
     analysisNodes += Math.max(0, Number(result.nodes) || 0);
     latestAnalysisNps = Math.max(0, Number(result.nps) || 0);
@@ -1353,9 +1404,12 @@ async function requestAnalysis() {
     // one quarter of Render Free's already limited CPU time.
     analysisTimer = window.setTimeout(requestAnalysis, 0);
   } catch (error) {
+    if (error.name === "AbortError") return;
     if (serial !== requestSerial) return;
     clearCandidates(error.message);
     stopAnalysis(false);
+  } finally {
+    if (analysisAbortController === controller) analysisAbortController = null;
   }
 }
 
@@ -1379,6 +1433,7 @@ function stopAnalysis(showWaiting = true) {
   analysisStartedAt = null;
   window.clearTimeout(analysisTimer);
   analysisTimer = null;
+  cancelAnalysisRequest();
   window.clearInterval(analysisMetricTimer);
   analysisMetricTimer = null;
   requestSerial += 1;
@@ -1414,8 +1469,10 @@ elements.chooseGote.addEventListener("click", () => startMatch(1));
 elements.closeSide.addEventListener("click", () => elements.sideDialog.close());
 elements.backToModes.addEventListener("click", returnToModes);
 elements.resetGame.addEventListener("click", resetPosition);
+elements.historyStart.addEventListener("click", () => restoreHistory(0));
 elements.historyBack.addEventListener("click", () => restoreHistory(historyIndex - 1));
 elements.historyForward.addEventListener("click", () => restoreHistory(historyIndex + 1));
+elements.historyEnd.addEventListener("click", () => restoreHistory(history.length - 1));
 elements.analysisToggle.addEventListener("click", () => (analysisRunning ? stopAnalysis() : startAnalysis()));
 elements.copyKifu.addEventListener("click", showKifuCopyDialog);
 elements.pasteKifu.addEventListener("click", showKifuPasteDialog);
