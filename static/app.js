@@ -10,6 +10,16 @@ const UNPROMOTE = { P: "p", L: "l", N: "n", S: "s", B: "b", R: "r" };
 const HAND_ORDER = ["r", "b", "g", "s", "n", "l", "p"];
 const RANK_NAMES = ["一", "二", "三", "四", "五", "六", "七", "八", "九"];
 const FILE_NAMES = { 1: "１", 2: "２", 3: "３", 4: "４", 5: "５", 6: "６", 7: "７", 8: "８", 9: "９" };
+const KIF_RANKS = { 一: 1, 二: 2, 三: 3, 四: 4, 五: 5, 六: 6, 七: 7, 八: 8, 九: 9 };
+const KIF_PIECES = {
+  歩: "p", 香: "l", 桂: "n", 銀: "s", 金: "g", 角: "b", 飛: "r", 玉: "k", 王: "k",
+  と: "P", 杏: "L", 成香: "L", 圭: "N", 成桂: "N", 全: "S", 成銀: "S", 馬: "B", 龍: "R", 竜: "R",
+};
+const CSA_PIECES = {
+  FU: "p", KY: "l", KE: "n", GI: "s", KI: "g", KA: "b", HI: "r", OU: "k",
+  TO: "P", NY: "L", NK: "N", NG: "S", UM: "B", RY: "R",
+};
+const SVG_NS = "http://www.w3.org/2000/svg";
 
 const elements = {
   modeScreen: document.querySelector("#mode-screen"),
@@ -21,6 +31,7 @@ const elements = {
   modeName: document.querySelector("#mode-name"),
   turnStatus: document.querySelector("#turn-status"),
   board: document.querySelector("#board"),
+  arrowLines: document.querySelector("#arrow-lines"),
   blackHand: document.querySelector("#black-hand-pieces"),
   whiteHand: document.querySelector("#white-hand-pieces"),
   blackHandCount: document.querySelector("#black-hand-count"),
@@ -34,7 +45,23 @@ const elements = {
   analysisElapsed: document.querySelector("#analysis-elapsed"),
   analysisNodes: document.querySelector("#analysis-nodes"),
   analysisNps: document.querySelector("#analysis-nps"),
-  candidates: [1, 2, 3].map((rank) => document.querySelector(`#candidate-${rank}`)),
+  evaluationBar: document.querySelector("#evaluation-bar"),
+  sentePercentage: document.querySelector("#sente-percentage"),
+  gotePercentage: document.querySelector("#gote-percentage"),
+  candidates: [1, 2, 3].map((rank) => ({
+    row: document.querySelector(`#candidate-row-${rank}`),
+    score: document.querySelector(`#candidate-score-${rank}`),
+    move: document.querySelector(`#candidate-move-${rank}`),
+    pv: document.querySelector(`#candidate-pv-${rank}`),
+  })),
+  copyKifu: document.querySelector("#copy-kifu"),
+  pasteKifu: document.querySelector("#paste-kifu"),
+  kifuDialog: document.querySelector("#kifu-dialog"),
+  closeKifu: document.querySelector("#close-kifu"),
+  kifuText: document.querySelector("#kifu-text"),
+  kifuStatus: document.querySelector("#kifu-status"),
+  loadKifu: document.querySelector("#load-kifu"),
+  copyKifuText: document.querySelector("#copy-kifu-text"),
   sideDialog: document.querySelector("#side-dialog"),
   chooseSente: document.querySelector("#choose-sente"),
   chooseGote: document.querySelector("#choose-gote"),
@@ -70,6 +97,8 @@ let analysisElapsedMs = 0;
 let analysisNodes = 0;
 let latestAnalysisNps = 0;
 let hasAnalysisResult = false;
+let latestCandidates = [];
+let moveList = [];
 
 
 function emptyHands() {
@@ -299,6 +328,7 @@ function snapshot() {
     turn,
     lastMove: lastMove ? [...lastMove] : null,
     moveNumber,
+    moveList: [...moveList],
     gameOver,
     gameMessage,
   };
@@ -325,6 +355,7 @@ function restoreHistory(index) {
   turn = saved.turn;
   lastMove = saved.lastMove ? [...saved.lastMove] : null;
   moveNumber = saved.moveNumber;
+  moveList = [...(saved.moveList || [])];
   gameOver = saved.gameOver;
   gameMessage = saved.gameMessage;
   selected = null;
@@ -402,6 +433,7 @@ function resetPosition() {
   legalTargets = [];
   lastMove = null;
   moveNumber = 0;
+  moveList = [];
   gameOver = false;
   gameMessage = "";
   aiThinking = false;
@@ -476,6 +508,52 @@ function renderBoard() {
       square.addEventListener("click", () => onSquareClick(row, col));
       elements.board.append(square);
     }
+  }
+  renderCandidateArrows();
+}
+
+
+function displaySquare(row, col) {
+  const flipped = mode === "match" && humanSide === 1;
+  return flipped ? [8 - row, 8 - col] : [row, col];
+}
+
+
+function renderCandidateArrows() {
+  elements.arrowLines.replaceChildren();
+  if (mode !== "analysis") return;
+
+  for (let index = 0; index < Math.min(2, latestCandidates.length); index += 1) {
+    const move = latestCandidates[index]?.pv?.[0];
+    if (!move || move === "resign" || move === "win") continue;
+    const styleName = index === 0 ? "best" : "second";
+
+    if (move.includes("*")) {
+      const [, squareText] = move.split("*");
+      const [row, col] = displaySquare(...parseUsiSquare(squareText));
+      const circle = document.createElementNS(SVG_NS, "circle");
+      circle.setAttribute("cx", String(col + 0.5));
+      circle.setAttribute("cy", String(row + 0.5));
+      circle.setAttribute("r", index === 0 ? "0.34" : "0.25");
+      circle.setAttribute("class", `candidate-drop ${styleName}`);
+      elements.arrowLines.append(circle);
+      continue;
+    }
+
+    const [sourceRow, sourceCol] = displaySquare(...parseUsiSquare(move.slice(0, 2)));
+    const [targetRow, targetCol] = displaySquare(...parseUsiSquare(move.slice(2, 4)));
+    const dx = targetCol - sourceCol;
+    const dy = targetRow - sourceRow;
+    const distance = Math.hypot(dx, dy) || 1;
+    const shortenStart = 0.16;
+    const shortenEnd = 0.28;
+    const line = document.createElementNS(SVG_NS, "line");
+    line.setAttribute("x1", String(sourceCol + 0.5 + (dx / distance) * shortenStart));
+    line.setAttribute("y1", String(sourceRow + 0.5 + (dy / distance) * shortenStart));
+    line.setAttribute("x2", String(targetCol + 0.5 - (dx / distance) * shortenEnd));
+    line.setAttribute("y2", String(targetRow + 0.5 - (dy / distance) * shortenEnd));
+    line.setAttribute("class", `candidate-arrow ${styleName}`);
+    elements.arrowLines.append(line);
   }
 }
 
@@ -581,10 +659,11 @@ function onSquareClick(row, col) {
 }
 
 
-function completeMove() {
+function completeMove(usiMove = null) {
   selected = null;
   selectedHand = null;
   legalTargets = [];
+  if (usiMove) moveList.push(usiMove);
   moveNumber += 1;
   turn = 1 - turn;
   checkGameEnd();
@@ -614,7 +693,8 @@ function performMove(fromRow, fromCol, toRow, toCol) {
   board[toRow][toCol] = [owner, type];
   board[fromRow][fromCol] = null;
   lastMove = [toRow, toCol];
-  completeMove();
+  const promotion = type !== originalType ? "+" : "";
+  completeMove(`${toUsiSquare(fromRow, fromCol)}${toUsiSquare(toRow, toCol)}${promotion}`);
 }
 
 
@@ -623,7 +703,7 @@ function performDrop(type, row, col) {
   board[row][col] = [turn, type];
   hands[turn][type] -= 1;
   lastMove = [row, col];
-  completeMove();
+  completeMove(`${type.toUpperCase()}*${toUsiSquare(row, col)}`);
 }
 
 
@@ -669,6 +749,11 @@ function parseUsiSquare(text) {
 }
 
 
+function toUsiSquare(row, col) {
+  return `${9 - col}${String.fromCharCode("a".charCodeAt(0) + row)}`;
+}
+
+
 function applyUsiMove(move) {
   if (!move || move === "resign") {
     gameOver = true;
@@ -693,7 +778,7 @@ function applyUsiMove(move) {
     board[row][col] = [turn, type];
     hands[turn][type] -= 1;
     lastMove = [row, col];
-    completeMove();
+    completeMove(move);
     return;
   }
 
@@ -711,7 +796,7 @@ function applyUsiMove(move) {
   board[toRow][toCol] = [owner, type];
   board[fromRow][fromCol] = null;
   lastMove = [toRow, toCol];
-  completeMove();
+  completeMove(move);
 }
 
 
@@ -748,9 +833,47 @@ async function requestAiMove() {
 
 
 function scoreText(candidate) {
-  if (candidate.score_type === "mate") return candidate.score == null ? "詰み" : `詰み ${candidate.score}`;
-  if (candidate.score_type === "cp" && candidate.score != null) return `評価 ${(candidate.score / 100).toFixed(2).replace(/^(-?)/, "$1+").replace("-+", "-")}`;
-  return "評価 --";
+  if (candidate.score_type === "mate") {
+    const mateMoves = Number(candidate.score);
+    if (!Number.isFinite(mateMoves)) return "詰み";
+    const winner = mateMoves > 0 ? turn : 1 - turn;
+    return `${winner === 0 ? "先手" : "後手"}勝ち（${Math.abs(mateMoves)}手）`;
+  }
+  if (candidate.score_type === "cp" && candidate.score != null) {
+    const engineScore = Number(candidate.score);
+    if (!Number.isFinite(engineScore)) return "--";
+    const senteScore = turn === 0 ? engineScore : -engineScore;
+    return `${senteScore >= 0 ? "+" : ""}${Math.round(senteScore)}`;
+  }
+  return "--";
+}
+
+
+function evaluationPercentage(candidate) {
+  if (!candidate) return 50;
+  if (candidate.score_type === "mate") {
+    const mateMoves = Number(candidate.score);
+    if (!Number.isFinite(mateMoves)) return 50;
+    const winner = mateMoves > 0 ? turn : 1 - turn;
+    return winner === 0 ? 100 : 0;
+  }
+  if (candidate.score_type !== "cp") return 50;
+  const engineScore = Number(candidate.score);
+  if (!Number.isFinite(engineScore)) return 50;
+  const senteScore = turn === 0 ? engineScore : -engineScore;
+  // +76がおよそ52%になる、一般的な将棋ソフトに近い緩やかな換算。
+  return Math.max(1, Math.min(99, 100 / (1 + Math.exp(-senteScore / 900))));
+}
+
+
+function updateEvaluationBar(candidate = null) {
+  const sente = evaluationPercentage(candidate);
+  const roundedSente = Math.round(sente);
+  const roundedGote = 100 - roundedSente;
+  elements.evaluationBar.value = sente;
+  elements.evaluationBar.textContent = `${roundedSente}%`;
+  elements.sentePercentage.textContent = `▲ ${roundedSente}%`;
+  elements.gotePercentage.textContent = `△ ${roundedGote}%`;
 }
 
 
@@ -802,31 +925,374 @@ function pvToJapanese(pv) {
   let previousDestination = null;
   const result = [];
   for (const move of pv) {
-    result.push(japaneseMove(move, virtualBoard, previousDestination));
+    result.push(`${virtualTurn === 0 ? "▲" : "△"}${japaneseMove(move, virtualBoard, previousDestination)}`);
     previousDestination = applyVirtualMove(virtualBoard, virtualHands, virtualTurn, move);
     if (!previousDestination) break;
     virtualTurn = 1 - virtualTurn;
   }
-  return result.join(" ");
+  return result;
 }
 
 
 function renderCandidates(candidates) {
+  latestCandidates = candidates.filter((candidate) => Array.isArray(candidate?.pv) && candidate.pv.length);
   for (let index = 0; index < 3; index += 1) {
     const candidate = candidates[index];
+    const cells = elements.candidates[index];
     if (!candidate) {
-      elements.candidates[index].textContent = "候補なし";
+      cells.score.textContent = "--";
+      cells.move.textContent = "候補なし";
+      cells.pv.textContent = "";
+      cells.row.removeAttribute("title");
       continue;
     }
-    const firstMove = japaneseMove(candidate.pv[0], board);
+    const line = pvToJapanese(candidate.pv || []);
+    cells.score.textContent = scoreText(candidate);
+    cells.move.textContent = line[0] || "候補なし";
+    cells.pv.textContent = line.slice(1).join(" ") || "—";
     const depth = candidate.depth == null ? "--" : candidate.depth;
-    elements.candidates[index].textContent = `${firstMove} ${scoreText(candidate)} 深さ ${depth}\n→ ${pvToJapanese(candidate.pv)}`;
+    cells.row.title = `深さ ${depth}`;
   }
+  updateEvaluationBar(candidates[0]);
+  renderCandidateArrows();
 }
 
 
 function clearCandidates(text) {
-  for (const candidate of elements.candidates) candidate.textContent = text;
+  latestCandidates = [];
+  for (const candidate of elements.candidates) {
+    candidate.score.textContent = "--";
+    candidate.move.textContent = text;
+    candidate.pv.textContent = "";
+    candidate.row.removeAttribute("title");
+  }
+  updateEvaluationBar();
+  renderCandidateArrows();
+}
+
+
+function moveDestination(move) {
+  const squareText = move.includes("*") ? move.split("*")[1] : move.slice(2, 4);
+  return parseUsiSquare(squareText);
+}
+
+
+function isLegalStateMove(sourceBoard, sourceHands, owner, move) {
+  if (typeof move !== "string") return false;
+  if (move.includes("*")) {
+    const match = move.match(/^([PLNSGBR])\*([1-9][a-i])$/i);
+    if (!match) return false;
+    const type = match[1].toLowerCase();
+    const [row, col] = parseUsiSquare(match[2]);
+    return dropTargets(sourceBoard, sourceHands, owner, type).some(([r, c]) => r === row && c === col);
+  }
+
+  const match = move.match(/^([1-9][a-i])([1-9][a-i])(\+?)$/);
+  if (!match) return false;
+  const [fromRow, fromCol] = parseUsiSquare(match[1]);
+  const [toRow, toCol] = parseUsiSquare(match[2]);
+  const piece = sourceBoard[fromRow]?.[fromCol];
+  if (!piece || piece[0] !== owner) return false;
+  if (!legalPieceTargets(sourceBoard, fromRow, fromCol).some(([r, c]) => r === toRow && c === toCol)) return false;
+  if (match[3] && !canPromote(piece[1], owner, fromRow, toRow)) return false;
+  if (!match[3] && mustPromote(piece[1], owner, toRow)) return false;
+  return true;
+}
+
+
+function normalizeKifuText(text) {
+  return String(text || "")
+    .replace(/\r\n?/g, "\n")
+    .replace(/[０-９]/g, (digit) => String.fromCharCode(digit.charCodeAt(0) - 0xfee0));
+}
+
+
+function filterDirectionalSources(sources, notation, owner, toRow) {
+  let filtered = [...sources];
+  if (notation.includes("直")) filtered = filtered.filter(({ row, col, toCol }) => col === toCol);
+  if (notation.includes("寄")) filtered = filtered.filter(({ row }) => row === toRow);
+  if (notation.includes("上")) filtered = filtered.filter(({ row }) => (owner === 0 ? row > toRow : row < toRow));
+  if (notation.includes("引")) filtered = filtered.filter(({ row }) => (owner === 0 ? row < toRow : row > toRow));
+
+  if (filtered.length > 1 && (notation.includes("右") || notation.includes("左"))) {
+    const columns = filtered.map(({ col }) => col);
+    const rightColumn = owner === 0 ? Math.max(...columns) : Math.min(...columns);
+    const leftColumn = owner === 0 ? Math.min(...columns) : Math.max(...columns);
+    const chosenColumn = notation.includes("右") ? rightColumn : leftColumn;
+    filtered = filtered.filter(({ col }) => col === chosenColumn);
+  }
+  return filtered;
+}
+
+
+function parseJapaneseMove(rawNotation, sourceBoard, sourceHands, owner, previousDestination) {
+  let notation = normalizeKifuText(rawNotation)
+    .replace(/^[▲△☗☖]/, "")
+    .replace(/\s+/g, "")
+    .replace(/まで.*$/, "");
+  const originMatch = notation.match(/\(([0-9])([0-9])\)/);
+  notation = notation.replace(/\(\s*\d+:\d+[\s\S]*$/, "");
+  notation = notation.replace(/\([0-9][0-9]\)/, "");
+
+  let toRow;
+  let toCol;
+  if (notation.startsWith("同")) {
+    if (!previousDestination) throw new Error("「同」の移動先を特定できません。");
+    [toRow, toCol] = previousDestination;
+    notation = notation.slice(1);
+  } else {
+    const destination = notation.match(/^([1-9])([1-9一二三四五六七八九])/);
+    if (!destination) throw new Error(`移動先を読み取れません：${rawNotation}`);
+    const file = Number(destination[1]);
+    const rank = Number(destination[2]) || KIF_RANKS[destination[2]];
+    toRow = rank - 1;
+    toCol = 9 - file;
+    notation = notation.slice(destination[0].length);
+  }
+
+  const pieceName = Object.keys(KIF_PIECES)
+    .sort((a, b) => b.length - a.length)
+    .find((name) => notation.startsWith(name));
+  if (!pieceName) throw new Error(`駒名を読み取れません：${rawNotation}`);
+  const writtenType = KIF_PIECES[pieceName];
+  notation = notation.slice(pieceName.length);
+  const promotes = notation.includes("成") && !notation.includes("不成") && !UNPROMOTE[writtenType];
+  const sourceType = promotes ? writtenType : writtenType;
+  const isDrop = notation.includes("打") || (originMatch && originMatch[1] === "0" && originMatch[2] === "0");
+
+  if (isDrop) {
+    const type = (UNPROMOTE[sourceType] || sourceType).toLowerCase();
+    const move = `${type.toUpperCase()}*${toUsiSquare(toRow, toCol)}`;
+    if (!isLegalStateMove(sourceBoard, sourceHands, owner, move)) throw new Error(`打ち場所が不正です：${rawNotation}`);
+    return move;
+  }
+
+  let fromRow;
+  let fromCol;
+  if (originMatch) {
+    const fromFile = Number(originMatch[1]);
+    const fromRank = Number(originMatch[2]);
+    fromRow = fromRank - 1;
+    fromCol = 9 - fromFile;
+  } else {
+    const candidates = [];
+    for (let row = 0; row < 9; row += 1) {
+      for (let col = 0; col < 9; col += 1) {
+        const piece = sourceBoard[row][col];
+        if (!piece || piece[0] !== owner || piece[1] !== sourceType) continue;
+        if (legalPieceTargets(sourceBoard, row, col).some(([r, c]) => r === toRow && c === toCol)) {
+          candidates.push({ row, col, toCol });
+        }
+      }
+    }
+    const filtered = filterDirectionalSources(candidates, notation, owner, toRow);
+    if (filtered.length !== 1) throw new Error(`移動元を特定できません：${rawNotation}`);
+    [{ row: fromRow, col: fromCol }] = filtered;
+  }
+
+  const piece = sourceBoard[fromRow]?.[fromCol];
+  if (!piece || piece[0] !== owner || piece[1] !== sourceType) throw new Error(`移動元の駒が一致しません：${rawNotation}`);
+  const move = `${toUsiSquare(fromRow, fromCol)}${toUsiSquare(toRow, toCol)}${promotes ? "+" : ""}`;
+  if (!isLegalStateMove(sourceBoard, sourceHands, owner, move)) throw new Error(`指し手が不正です：${rawNotation}`);
+  return move;
+}
+
+
+function parseCsaMoves(text) {
+  const moves = [];
+  const virtualBoard = initialBoard();
+  const virtualHands = emptyHands();
+  let virtualTurn = 0;
+  for (const line of text.split("\n")) {
+    const match = line.trim().match(/^([+-])([0-9]{2})([0-9]{2})([A-Z]{2})/);
+    if (!match) continue;
+    const owner = match[1] === "+" ? 0 : 1;
+    if (owner !== virtualTurn) throw new Error("CSA棋譜の手番が一致しません。");
+    const resultingType = CSA_PIECES[match[4]];
+    if (!resultingType) throw new Error(`未対応のCSA駒です：${match[4]}`);
+    const toFile = Number(match[3][0]);
+    const toRank = Number(match[3][1]);
+    let move;
+    if (match[2] === "00") {
+      const type = (UNPROMOTE[resultingType] || resultingType).toUpperCase();
+      move = `${type}*${toUsiSquare(toRank - 1, 9 - toFile)}`;
+    } else {
+      const fromFile = Number(match[2][0]);
+      const fromRank = Number(match[2][1]);
+      const fromSquare = toUsiSquare(fromRank - 1, 9 - fromFile);
+      const toSquare = toUsiSquare(toRank - 1, 9 - toFile);
+      const piece = virtualBoard[fromRank - 1]?.[9 - fromFile];
+      const promotion = piece && !UNPROMOTE[piece[1]] && UNPROMOTE[resultingType] ? "+" : "";
+      move = `${fromSquare}${toSquare}${promotion}`;
+    }
+    if (!isLegalStateMove(virtualBoard, virtualHands, virtualTurn, move)) throw new Error(`CSAの指し手が不正です：${line}`);
+    applyVirtualMove(virtualBoard, virtualHands, virtualTurn, move);
+    moves.push(move);
+    virtualTurn = 1 - virtualTurn;
+  }
+  return moves;
+}
+
+
+function parseJapaneseMoves(notations) {
+  const moves = [];
+  const virtualBoard = initialBoard();
+  const virtualHands = emptyHands();
+  let virtualTurn = 0;
+  let previousDestination = null;
+  for (const notation of notations) {
+    if (/^(投了|中断|千日手|持将棋|切れ負け|反則)/.test(notation.trim())) break;
+    const move = parseJapaneseMove(notation, virtualBoard, virtualHands, virtualTurn, previousDestination);
+    previousDestination = applyVirtualMove(virtualBoard, virtualHands, virtualTurn, move);
+    moves.push(move);
+    virtualTurn = 1 - virtualTurn;
+  }
+  return moves;
+}
+
+
+function validateUsiMoves(moves) {
+  const virtualBoard = initialBoard();
+  const virtualHands = emptyHands();
+  let virtualTurn = 0;
+  moves.forEach((move, index) => {
+    if (!isLegalStateMove(virtualBoard, virtualHands, virtualTurn, move)) {
+      throw new Error(`${index + 1}手目が不正です：${move}`);
+    }
+    applyVirtualMove(virtualBoard, virtualHands, virtualTurn, move);
+    virtualTurn = 1 - virtualTurn;
+  });
+}
+
+
+function parseKifuText(text) {
+  const normalized = normalizeKifuText(text);
+  const csaMoves = parseCsaMoves(normalized);
+  if (csaMoves.length) return csaMoves;
+
+  const numberedMoves = [];
+  for (const line of normalized.split("\n")) {
+    const match = line.match(/^\s*\d+\s+(.+?)\s*$/);
+    if (match) numberedMoves.push(match[1]);
+  }
+  if (numberedMoves.length) return parseJapaneseMoves(numberedMoves);
+
+  const markedMoves = [];
+  for (const match of normalized.matchAll(/[▲△☗☖]([^▲△☗☖\n]+)/g)) markedMoves.push(`${match[0][0]}${match[1]}`);
+  if (markedMoves.length) return parseJapaneseMoves(markedMoves);
+
+  const movesSection = normalized.includes(" moves ") ? normalized.split(/\smoves\s/).pop() : normalized;
+  const usiMoves = movesSection.match(/(?:[PLNSGBR]\*[1-9][a-i]|[1-9][a-i][1-9][a-i]\+?)/gi) || [];
+  const normalizedMoves = usiMoves.map((move) => (
+    move.includes("*") ? `${move[0].toUpperCase()}*${move.slice(2).toLowerCase()}` : move.toLowerCase()
+  ));
+  if (normalizedMoves.length) {
+    validateUsiMoves(normalizedMoves);
+    return normalizedMoves;
+  }
+  throw new Error("指し手を読み取れませんでした。KIF・KI2・CSA・USI形式を貼り付けてください。");
+}
+
+
+function loadKifuMoves(moves) {
+  validateUsiMoves(moves);
+  const resumeAnalysis = analysisRunning;
+  stopAnalysis(false);
+  requestSerial += 1;
+  board = initialBoard();
+  hands = emptyHands();
+  turn = 0;
+  selected = null;
+  selectedHand = null;
+  legalTargets = [];
+  lastMove = null;
+  moveNumber = 0;
+  moveList = [];
+  gameOver = false;
+  gameMessage = "";
+  aiThinking = false;
+  history = [];
+  historyIndex = -1;
+  saveHistory();
+
+  moves.forEach((move, index) => {
+    lastMove = applyVirtualMove(board, hands, turn, move);
+    moveList.push(move);
+    moveNumber += 1;
+    turn = 1 - turn;
+    gameOver = false;
+    gameMessage = "";
+    if (index === moves.length - 1) checkGameEnd();
+    saveHistory();
+  });
+  resetAnalysisProgress(false);
+  renderAll();
+  if (resumeAnalysis && !gameOver) startAnalysis();
+}
+
+
+function exportKifu() {
+  const virtualBoard = initialBoard();
+  const virtualHands = emptyHands();
+  let virtualTurn = 0;
+  let previousDestination = null;
+  const lines = ["# 変則将棋AI", "手合割：平手", "手数----指手---------"];
+  moveList.forEach((move, index) => {
+    let notation = japaneseMove(move, virtualBoard, previousDestination);
+    if (!move.includes("*")) {
+      const [fromRow, fromCol] = parseUsiSquare(move.slice(0, 2));
+      notation += `(${9 - fromCol}${fromRow + 1})`;
+    }
+    lines.push(`${String(index + 1).padStart(4, " ")} ${notation}`);
+    previousDestination = applyVirtualMove(virtualBoard, virtualHands, virtualTurn, move);
+    virtualTurn = 1 - virtualTurn;
+  });
+  return lines.join("\n");
+}
+
+
+function setKifuStatus(message, success = false) {
+  elements.kifuStatus.textContent = message;
+  elements.kifuStatus.classList.toggle("success", success);
+}
+
+
+async function copyText(text) {
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return;
+  }
+  elements.kifuText.focus();
+  elements.kifuText.select();
+  if (!document.execCommand("copy")) throw new Error("コピーできませんでした。");
+}
+
+
+async function showKifuCopyDialog() {
+  elements.kifuText.value = exportKifu();
+  setKifuStatus("");
+  if (!elements.kifuDialog.open) elements.kifuDialog.showModal();
+  try {
+    await copyText(elements.kifuText.value);
+    setKifuStatus("現在の棋譜をコピーしました。", true);
+  } catch (_) {
+    elements.kifuText.select();
+    setKifuStatus("自動コピーできない場合は、棋譜欄を長押ししてコピーしてください。");
+  }
+}
+
+
+async function showKifuPasteDialog() {
+  elements.kifuText.value = "";
+  setKifuStatus("棋譜を貼り付けて「棋譜を読み込む」を押してください。", true);
+  if (!elements.kifuDialog.open) elements.kifuDialog.showModal();
+  elements.kifuText.focus();
+  try {
+    const clipboardText = await navigator.clipboard?.readText?.();
+    if (clipboardText) elements.kifuText.value = clipboardText;
+  } catch (_) {
+    // ブラウザが読み取りを許可しない場合も、手動貼り付けは利用できる。
+  }
 }
 
 
@@ -951,6 +1417,21 @@ elements.resetGame.addEventListener("click", resetPosition);
 elements.historyBack.addEventListener("click", () => restoreHistory(historyIndex - 1));
 elements.historyForward.addEventListener("click", () => restoreHistory(historyIndex + 1));
 elements.analysisToggle.addEventListener("click", () => (analysisRunning ? stopAnalysis() : startAnalysis()));
+elements.copyKifu.addEventListener("click", showKifuCopyDialog);
+elements.pasteKifu.addEventListener("click", showKifuPasteDialog);
+elements.closeKifu.addEventListener("click", () => elements.kifuDialog.close());
+elements.copyKifuText.addEventListener("click", showKifuCopyDialog);
+elements.loadKifu.addEventListener("click", () => {
+  setKifuStatus("");
+  try {
+    const moves = parseKifuText(elements.kifuText.value);
+    loadKifuMoves(moves);
+    setKifuStatus(`${moves.length}手の棋譜を読み込みました。`, true);
+    window.setTimeout(() => elements.kifuDialog.close(), 450);
+  } catch (error) {
+    setKifuStatus(error.message || "棋譜を読み込めませんでした。");
+  }
+});
 elements.closePassword.addEventListener("click", () => elements.passwordDialog.close());
 elements.passwordForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -968,5 +1449,7 @@ elements.passwordForm.addEventListener("submit", async (event) => {
 elements.passwordDialog.addEventListener("cancel", () => {
   elements.passwordError.textContent = "";
 });
+
+elements.kifuDialog.addEventListener("cancel", () => setKifuStatus(""));
 
 updateHistoryButtons();
