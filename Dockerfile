@@ -58,6 +58,7 @@ COPY --from=engine-builder /out/YaneuraOu /opt/yaneuraou/YaneuraOu
 COPY --from=engine-builder /out/YaneuraOu-avx2 /opt/yaneuraou/YaneuraOu-avx2
 COPY --from=engine-builder /src/YaneuraOu/LICENSE /opt/yaneuraou/LICENSE
 COPY app.py ./
+COPY opening_book.py ./
 COPY templates ./templates
 COPY static ./static
 
