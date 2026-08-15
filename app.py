@@ -1,4 +1,5 @@
 import atexit
+import hashlib
 import hmac
 import os
 import queue
@@ -354,6 +355,30 @@ def ensure_search_client_id():
     return owner_id
 
 
+def opening_admin_session_tag():
+    """管理パスワード変更時に、過去の認証セッションを自動で無効化する。"""
+    if not OPENING_ADMIN_PASSWORD:
+        return None
+    secret_key = app.config["SECRET_KEY"]
+    if isinstance(secret_key, str):
+        secret_key = secret_key.encode("utf-8")
+    return hmac.new(
+        secret_key,
+        f"opening-admin:v1:{OPENING_ADMIN_PASSWORD}".encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def opening_admin_authorized():
+    expected = opening_admin_session_tag()
+    actual = session.get("opening_admin_auth_tag")
+    return bool(
+        expected
+        and isinstance(actual, str)
+        and hmac.compare_digest(actual, expected)
+    )
+
+
 @app.after_request
 def security_headers(response):
     response.headers["Content-Security-Policy"] = (
@@ -393,7 +418,7 @@ def auth_status():
         {
             # 検討モードは全員が利用可能。旧版JSとの互換性のためauthorizedも返す。
             "authorized": True,
-            "opening_admin": bool(session.get("opening_admin_authorized")),
+            "opening_admin": opening_admin_authorized(),
         }
     )
 
@@ -429,7 +454,7 @@ def opening_move():
 def opening_admin_status():
     return jsonify(
         {
-            "authorized": bool(session.get("opening_admin_authorized")),
+            "authorized": opening_admin_authorized(),
             "persistence_ready": opening_book.persistence_ready,
         }
     )
@@ -449,13 +474,14 @@ def opening_admin_login():
     with failed_logins_lock:
         failed_logins.pop(ip, None)
     session.permanent = True
-    session["opening_admin_authorized"] = True
+    session.pop("opening_admin_authorized", None)
+    session["opening_admin_auth_tag"] = opening_admin_session_tag()
     ensure_search_client_id()
     return jsonify({"ok": True})
 
 
 def require_opening_admin():
-    if not session.get("opening_admin_authorized"):
+    if not opening_admin_authorized():
         return jsonify({"error": "定跡管理者の認証が必要です。"}), 403
     return None
 
