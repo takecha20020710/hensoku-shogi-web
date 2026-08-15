@@ -9,6 +9,10 @@ services:
     envVars:
       - key: ANALYSIS_PASSWORD
         sync: false
+      - key: OPENING_ADMIN_PASSWORD
+        sync: false
+      - key: OPENING_BOOK_GITHUB_TOKEN
+        sync: false
       - key: SECRET_KEY
         generateValue: true
       - key: YANEURAOU_PATH
