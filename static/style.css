@@ -876,8 +876,8 @@ a:focus-visible {
 
   .analysis-toolbar {
     display: grid;
-    grid-template-columns: auto 1fr;
-    gap: 6px;
+    grid-template-columns: 1fr;
+    gap: 3px;
     margin-top: 4px;
   }
 
@@ -900,6 +900,7 @@ a:focus-visible {
   }
 
   .analysis-metrics {
+    justify-content: flex-start;
     gap: 3px 8px;
     font-size: 0.68rem;
   }
