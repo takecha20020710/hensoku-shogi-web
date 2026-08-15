@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="持ち駒が3枚になった側が負ける変則将棋をAIと対局できます。">
   <title>変則将棋AI</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260815-1') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260815-2') }}">
 </head>
 <body>
   <main class="app-shell">
@@ -75,8 +75,10 @@
         <div class="analysis-toolbar">
           <div class="analysis-controls" aria-label="検討操作">
             <button id="analysis-toggle" class="square-button" type="button" aria-label="検討開始">▶</button>
+            <button id="history-start" class="square-button" type="button" aria-label="棋譜の開始局面へ戻る" title="棋譜の開始局面へ戻る" disabled>|←</button>
             <button id="history-back" class="square-button" type="button" aria-label="1手戻る" disabled>←</button>
             <button id="history-forward" class="square-button" type="button" aria-label="1手進む" disabled>→</button>
+            <button id="history-end" class="square-button" type="button" aria-label="棋譜の最終局面へ進む" title="棋譜の最終局面へ進む" disabled>→|</button>
             <button id="copy-kifu" class="kifu-button" type="button">棋譜コピー</button>
             <button id="paste-kifu" class="kifu-button" type="button">棋譜貼付</button>
           </div>
@@ -167,6 +169,6 @@
     </form>
   </dialog>
 
-  <script src="{{ url_for('static', filename='app.js', v='20260815-1') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v='20260815-2') }}" defer></script>
 </body>
 </html>
