@@ -125,6 +125,90 @@ DEFAULT_OPENING_RULES = [
 ]
 
 
+# 管理画面に表示する組み込み定跡。None はプレイヤーの任意手を表す。
+# 対局時の照合ロジックは上の DEFAULT_OPENING_RULES を使用し、ここは閲覧用に
+# 会話で指定された分岐を1本ずつ分かりやすくまとめている。
+DEFAULT_OPENING_LINES = [
+    {
+        "id": "builtin-sente-center-rook",
+        "name": "AI先手：5六歩・5八飛",
+        "ai_side": 0,
+        "moves": ["5g5f", None, "2h5h"],
+        "built_in": True,
+    },
+    {
+        "id": "builtin-gote-center-rook",
+        "name": "AI後手：5四歩・5二飛（基本形）",
+        "ai_side": 1,
+        "moves": [None, "5c5d", None, "8b5b"],
+        "built_in": True,
+    },
+    {
+        "id": "builtin-gote-bishop",
+        "name": "AI後手例外：7六歩・3三角",
+        "ai_side": 1,
+        "moves": ["7g7f", "5c5d", "8h3c", "2b3c"],
+        "built_in": True,
+    },
+    {
+        "id": "builtin-gote-bishop-promote",
+        "name": "AI後手例外：7六歩・3三角成",
+        "ai_side": 1,
+        "moves": ["7g7f", "5c5d", "8h3c+", "2b3c"],
+        "built_in": True,
+    },
+    {
+        "id": "builtin-gote-center-capture",
+        "name": "AI後手例外：5六歩・5五歩",
+        "ai_side": 1,
+        "moves": ["5g5f", "5c5d", "5f5e", "5d5e"],
+        "built_in": True,
+    },
+    {
+        "id": "builtin-gote-pawn-drop-king-6h",
+        "name": "AI後手：2四歩打分岐・6八玉",
+        "ai_side": 1,
+        "moves": [
+            "2g2f", "5c5d", "2f2e", "8b5b", "2e2d", "5d5e", "2d2c+", "5e5f",
+            "5g5f", "3a3b", "P*2d", "3b2c", "2d2c+", "P*5h", "5i6h", "5h5i+",
+        ],
+        "built_in": True,
+    },
+    {
+        "id": "builtin-gote-pawn-drop-king-4h",
+        "name": "AI後手：2四歩打分岐・4八玉",
+        "ai_side": 1,
+        "moves": [
+            "2g2f", "5c5d", "2f2e", "8b5b", "2e2d", "5d5e", "2d2c+", "5e5f",
+            "5g5f", "3a3b", "P*2d", "3b2c", "2d2c+", "P*5h", "5i4h", "5h5i+",
+        ],
+        "built_in": True,
+    },
+    {
+        "id": "builtin-gote-tokin-main",
+        "name": "AI後手：2四と分岐・本線",
+        "ai_side": 1,
+        "moves": [
+            "2g2f", "5c5d", "2f2e", "8b5b", "2e2d", "5d5e", "2d2c+", "5e5f",
+            "5g5f", "3a3b", "2c2d", "5b5f", "P*5h", "P*5g", "5h5g", "5f2f",
+            "P*2g", "2f2d",
+        ],
+        "built_in": True,
+    },
+    {
+        "id": "builtin-gote-tokin-5g-drop",
+        "name": "AI後手：2四と分岐・13手目5七歩打",
+        "ai_side": 1,
+        "moves": [
+            "2g2f", "5c5d", "2f2e", "8b5b", "2e2d", "5d5e", "2d2c+", "5e5f",
+            "5g5f", "3a3b", "2c2d", "5b5f", "P*5g", "P*5h",
+        ],
+        "built_in": True,
+        "note": "手番に合わせ、AIの次の手（14手目）を5八歩打として登録",
+    },
+]
+
+
 class OpeningBookError(RuntimeError):
     pass
 
@@ -230,7 +314,10 @@ class OpeningBook:
     def list_lines(self):
         self.ensure_loaded()
         with self.lock:
-            return json.loads(json.dumps(self.lines, ensure_ascii=False))
+            custom_lines = [{**line, "built_in": False} for line in self.lines]
+            return json.loads(
+                json.dumps([*DEFAULT_OPENING_LINES, *custom_lines], ensure_ascii=False)
+            )
 
     @staticmethod
     def validate_line(name, ai_side, moves):
