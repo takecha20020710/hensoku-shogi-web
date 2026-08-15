@@ -486,6 +486,15 @@ a:focus-visible {
   background: #f4e6ca;
 }
 
+.admin-button {
+  color: #fff;
+  background: #6f4a26;
+}
+
+.admin-button:hover {
+  background: #543719;
+}
+
 .evaluation-summary {
   margin-top: 12px;
 }
@@ -660,7 +669,8 @@ a:focus-visible {
   font-weight: 800;
 }
 
-.password-dialog input {
+.password-dialog input,
+.password-dialog select {
   width: 100%;
   min-height: 46px;
   padding: 10px 12px;
@@ -694,6 +704,123 @@ a:focus-visible {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+}
+
+.opening-manager-dialog {
+  width: min(760px, calc(100% - 24px));
+  max-height: min(90vh, 860px);
+  overflow-y: auto;
+}
+
+.opening-help {
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+
+.opening-register-grid {
+  display: grid;
+  grid-template-columns: 86px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 12px;
+}
+
+.opening-register-grid label {
+  margin: 0;
+}
+
+.opening-current-box {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(106, 69, 34, 0.25);
+  border-radius: 10px;
+  background: rgba(216, 170, 91, 0.1);
+}
+
+.opening-current-box p {
+  max-height: 120px;
+  margin-top: 7px;
+  overflow-y: auto;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.65;
+}
+
+.opening-storage-status {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.5;
+}
+
+.opening-storage-status.ready {
+  color: #287442;
+  font-weight: 800;
+}
+
+.opening-list-section {
+  margin-top: 2px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(106, 69, 34, 0.18);
+}
+
+.opening-list-section h3 {
+  margin: 0 0 9px;
+  font-size: 1rem;
+}
+
+.opening-line-list {
+  display: grid;
+  gap: 8px;
+}
+
+.opening-empty {
+  padding: 14px;
+  color: var(--muted);
+  background: rgba(216, 170, 91, 0.08);
+  border-radius: 9px;
+  text-align: center;
+  font-size: 0.82rem;
+}
+
+.opening-line-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px 12px;
+  align-items: start;
+  padding: 11px 12px;
+  border: 1px solid rgba(106, 69, 34, 0.2);
+  border-radius: 10px;
+  background: #fffdf8;
+}
+
+.opening-line-title {
+  margin: 0;
+  font-size: 0.88rem;
+}
+
+.opening-line-moves {
+  grid-column: 1 / -1;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.55;
+}
+
+.opening-delete-button {
+  padding: 5px 9px;
+  color: var(--accent);
+  border: 1px solid rgba(163, 58, 43, 0.35);
+  border-radius: 7px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.opening-delete-button:hover {
+  background: rgba(163, 58, 43, 0.07);
 }
 
 .dialog-close {
@@ -979,6 +1106,26 @@ a:focus-visible {
   .kifu-dialog textarea {
     min-height: 190px;
     font-size: 0.76rem;
+  }
+
+  .opening-manager-dialog form {
+    padding: 24px 16px 18px;
+  }
+
+  .opening-register-grid {
+    grid-template-columns: 68px minmax(0, 1fr);
+    gap: 6px 8px;
+    font-size: 0.8rem;
+  }
+
+  .opening-register-grid input,
+  .opening-register-grid select {
+    min-height: 40px;
+  }
+
+  .opening-current-box p {
+    max-height: 100px;
+    font-size: 0.72rem;
   }
 
   .site-footer {
