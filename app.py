@@ -45,7 +45,9 @@ USE_AVX2_ENGINE = AVX2_ENGINE_PATH.is_file() and {"avx2", "bmi2"}.issubset(CPU_F
 ENGINE_PATH = AVX2_ENGINE_PATH if USE_AVX2_ENGINE else CONFIGURED_ENGINE_PATH
 ENGINE_TARGET = "AVX2" if USE_AVX2_ENGINE else "SSE42"
 OPENING_ADMIN_PASSWORD = os.environ.get("OPENING_ADMIN_PASSWORD")
-VARIANT_PAWN_EVAL_ENABLED = os.environ.get("VARIANT_PAWN_EVAL", "false").strip().lower() in {
+# The newly deployed experiment is ON when the variable is absent. Setting the
+# Render value to "false" is the explicit, one-step rollback to the baseline.
+VARIANT_PAWN_EVAL_ENABLED = os.environ.get("VARIANT_PAWN_EVAL", "true").strip().lower() in {
     "1",
     "true",
     "yes",
