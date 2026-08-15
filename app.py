@@ -427,6 +427,7 @@ def health():
             "opening_admin_auth_version": 2,
             "evaluation_graph_version": 1,
             "variant_pawn_eval": VARIANT_PAWN_EVAL_ENABLED,
+            "variant_pawn_eval_version": 1,
         }
     )
 

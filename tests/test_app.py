@@ -58,6 +58,7 @@ def test_index_and_health():
     assert health["hash_mb"] == 128
     assert health["engine_target"] in ("SSE42", "AVX2")
     assert health["variant_pawn_eval"] is True
+    assert health["variant_pawn_eval_version"] == 1
 
 
 def test_analysis_is_public_and_admin_is_separate():
