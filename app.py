@@ -409,6 +409,7 @@ def health():
             "threads": 1,
             "hash_mb": 128,
             "opening_admin_auth_version": 2,
+            "evaluation_graph_version": 1,
         }
     )
 
@@ -551,6 +552,12 @@ def search_request(multipv):
 
 @app.post("/api/think")
 def think():
+    return search_request(1)
+
+
+@app.post("/api/evaluate")
+def evaluate():
+    """Short single-PV search used to save the evaluation after an AI move."""
     return search_request(1)
 
 

@@ -40,6 +40,7 @@ const elements = {
   analysisPanel: document.querySelector("#analysis-panel"),
   moveNumber: document.querySelector("#move-number"),
   analysisToggle: document.querySelector("#analysis-toggle"),
+  flipBoard: document.querySelector("#flip-board"),
   historyStart: document.querySelector("#history-start"),
   historyBack: document.querySelector("#history-back"),
   historyForward: document.querySelector("#history-forward"),
@@ -83,6 +84,12 @@ const elements = {
   openingManagerStatus: document.querySelector("#opening-manager-status"),
   openingStorageStatus: document.querySelector("#opening-storage-status"),
   openingLineList: document.querySelector("#opening-line-list"),
+  evaluationGraphSection: document.querySelector("#evaluation-graph-section"),
+  evaluationGraph: document.querySelector("#evaluation-graph"),
+  evaluationGraphPosition: document.querySelector("#evaluation-graph-position"),
+  postGameAnalysisDialog: document.querySelector("#post-game-analysis-dialog"),
+  reviewFinishedGame: document.querySelector("#review-finished-game"),
+  dismissFinishedGame: document.querySelector("#dismiss-finished-game"),
 };
 
 let mode = null;
@@ -114,6 +121,10 @@ let latestCandidates = [];
 let moveList = [];
 let managedOpeningLines = [];
 let openingPersistenceReady = false;
+let analysisFlipped = false;
+let matchEvaluations = [];
+let showEvaluationGraph = false;
+let postGamePromptShown = false;
 
 
 function emptyHands() {
@@ -336,6 +347,176 @@ function targetIncludes(targets, row, col) {
 }
 
 
+function resetMatchEvaluationState() {
+  matchEvaluations = [{ moveNumber: 0, score: 0, label: "開始局面" }];
+  showEvaluationGraph = false;
+  postGamePromptShown = false;
+}
+
+
+function storeMatchEvaluation(entry) {
+  if (!entry || !Number.isFinite(entry.score) || !Number.isInteger(entry.moveNumber)) return;
+  const existingIndex = matchEvaluations.findIndex((item) => item.moveNumber === entry.moveNumber);
+  if (existingIndex >= 0) matchEvaluations[existingIndex] = entry;
+  else matchEvaluations.push(entry);
+  matchEvaluations.sort((a, b) => a.moveNumber - b.moveNumber);
+  if (showEvaluationGraph) drawEvaluationGraph();
+}
+
+
+function storeCandidateEvaluation(candidate, evaluatedMoveNumber = moveNumber, sideToMove = turn) {
+  if (!candidate) return;
+  if (candidate.score_type === "mate") {
+    const mateMoves = Number(candidate.score);
+    if (!Number.isFinite(mateMoves)) return;
+    const winner = mateMoves > 0 ? sideToMove : 1 - sideToMove;
+    storeMatchEvaluation({
+      moveNumber: evaluatedMoveNumber,
+      score: winner === 0 ? 100000 : -100000,
+      label: `${winner === 0 ? "先手" : "後手"}勝ち（${Math.abs(mateMoves)}手）`,
+    });
+    return;
+  }
+  if (candidate.score_type !== "cp") return;
+  const rawScore = Number(candidate.score);
+  if (!Number.isFinite(rawScore)) return;
+  const senteScore = sideToMove === 0 ? rawScore : -rawScore;
+  storeMatchEvaluation({
+    moveNumber: evaluatedMoveNumber,
+    score: senteScore,
+    label: `${senteScore >= 0 ? "+" : ""}${Math.round(senteScore)}`,
+  });
+}
+
+
+function currentTerminalWinner() {
+  if (handTotal(0) >= 3) return 1;
+  if (handTotal(1) >= 3) return 0;
+  if (isInCheck(board, turn) && !hasAnyLegalMove(board, hands, turn)) return 1 - turn;
+  return null;
+}
+
+
+function storeTerminalEvaluation(winner = currentTerminalWinner(), reason = "終局") {
+  if (winner !== 0 && winner !== 1) return;
+  storeMatchEvaluation({
+    moveNumber,
+    score: winner === 0 ? 100000 : -100000,
+    label: `${winner === 0 ? "先手" : "後手"}勝ち（${reason}）`,
+  });
+}
+
+
+function evaluationGraphMetrics(width, height) {
+  return { left: 48, right: 14, top: 18, bottom: 28, width: Math.max(1, width - 62), height: Math.max(1, height - 46) };
+}
+
+
+function evaluationGraphY(score, metrics) {
+  const normalized = Math.tanh(Number(score || 0) / 1400);
+  return metrics.top + ((1 - normalized) / 2) * metrics.height;
+}
+
+
+function evaluationGraphX(ply, maximumPly, metrics) {
+  return metrics.left + (maximumPly ? (ply / maximumPly) * metrics.width : 0);
+}
+
+
+function drawEvaluationGraph() {
+  const canvas = elements.evaluationGraph;
+  if (!showEvaluationGraph || elements.evaluationGraphSection.classList.contains("is-hidden")) return;
+  const width = Math.max(320, Math.round(canvas.clientWidth || 0));
+  const height = Math.max(150, Math.round(canvas.clientHeight || 0));
+  const ratio = Math.max(1, window.devicePixelRatio || 1);
+  if (canvas.width !== Math.round(width * ratio) || canvas.height !== Math.round(height * ratio)) {
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+  }
+  const context = canvas.getContext("2d");
+  if (!context) return;
+  context.setTransform(ratio, 0, 0, ratio, 0, 0);
+  context.clearRect(0, 0, width, height);
+  const metrics = evaluationGraphMetrics(width, height);
+  const maximumPly = Math.max(1, history.at(-1)?.moveNumber || 0, ...matchEvaluations.map((item) => item.moveNumber));
+  const middleY = evaluationGraphY(0, metrics);
+
+  context.fillStyle = "rgba(79, 116, 189, 0.10)";
+  context.fillRect(metrics.left, metrics.top, metrics.width, middleY - metrics.top);
+  context.fillStyle = "rgba(190, 76, 74, 0.10)";
+  context.fillRect(metrics.left, middleY, metrics.width, metrics.top + metrics.height - middleY);
+
+  context.strokeStyle = "rgba(76, 88, 105, 0.34)";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(metrics.left, middleY);
+  context.lineTo(metrics.left + metrics.width, middleY);
+  context.stroke();
+
+  context.fillStyle = "#786955";
+  context.font = '11px "Yu Gothic UI", sans-serif';
+  context.textAlign = "right";
+  context.fillText("先手有利", metrics.left - 6, metrics.top + 5);
+  context.fillText("互角", metrics.left - 6, middleY + 4);
+  context.fillText("後手有利", metrics.left - 6, metrics.top + metrics.height);
+  context.textAlign = "center";
+  context.fillText("手数", metrics.left + metrics.width / 2, height - 7);
+
+  if (matchEvaluations.length) {
+    context.strokeStyle = "#34495e";
+    context.lineWidth = 2;
+    context.beginPath();
+    matchEvaluations.forEach((item, index) => {
+      const x = evaluationGraphX(item.moveNumber, maximumPly, metrics);
+      const y = evaluationGraphY(item.score, metrics);
+      if (index === 0) context.moveTo(x, y);
+      else context.lineTo(x, y);
+    });
+    context.stroke();
+
+    context.fillStyle = "#34495e";
+    for (const item of matchEvaluations) {
+      context.beginPath();
+      context.arc(evaluationGraphX(item.moveNumber, maximumPly, metrics), evaluationGraphY(item.score, metrics), 2.5, 0, Math.PI * 2);
+      context.fill();
+    }
+  }
+
+  const cursorX = evaluationGraphX(Math.max(0, Math.min(maximumPly, moveNumber)), maximumPly, metrics);
+  context.strokeStyle = "#a33a2b";
+  context.lineWidth = 1;
+  context.beginPath();
+  context.moveTo(cursorX, metrics.top);
+  context.lineTo(cursorX, metrics.top + metrics.height);
+  context.stroke();
+
+  const current = matchEvaluations.find((item) => item.moveNumber === moveNumber);
+  elements.evaluationGraphPosition.textContent = current
+    ? `第${moveNumber}手：${current.label}`
+    : `第${moveNumber}手`;
+}
+
+
+function moveToEvaluationGraphPosition(clientX) {
+  if (!showEvaluationGraph || !history.length) return;
+  const rectangle = elements.evaluationGraph.getBoundingClientRect();
+  const metrics = evaluationGraphMetrics(rectangle.width, rectangle.height);
+  const maximumPly = Math.max(1, history.at(-1)?.moveNumber || 0, ...matchEvaluations.map((item) => item.moveNumber));
+  const localX = Math.max(metrics.left, Math.min(metrics.left + metrics.width, clientX - rectangle.left));
+  const targetPly = Math.round(((localX - metrics.left) / metrics.width) * maximumPly);
+  let targetIndex = 0;
+  let smallestDistance = Infinity;
+  history.forEach((item, index) => {
+    const distance = Math.abs((item.moveNumber || 0) - targetPly);
+    if (distance < smallestDistance) {
+      smallestDistance = distance;
+      targetIndex = index;
+    }
+  });
+  restoreHistory(targetIndex);
+}
+
+
 function snapshot() {
   return {
     board: cloneBoard(board),
@@ -453,6 +634,34 @@ function checkGameEnd() {
 }
 
 
+function offerFinishedGameAnalysis() {
+  if (mode !== "match" || !gameOver || postGamePromptShown) return;
+  postGamePromptShown = true;
+  window.setTimeout(() => {
+    if (mode === "match" && gameOver && !elements.postGameAnalysisDialog.open) {
+      elements.postGameAnalysisDialog.showModal();
+    }
+  }, 180);
+}
+
+
+function reviewFinishedGameInAnalysis() {
+  if (elements.postGameAnalysisDialog.open) elements.postGameAnalysisDialog.close();
+  stopAnalysis(false);
+  requestSerial += 1;
+  aiThinking = false;
+  mode = "analysis";
+  analysisFlipped = humanSide === 1;
+  showEvaluationGraph = matchEvaluations.length > 0;
+  elements.gameScreen.classList.remove("match-mode", "gote-player");
+  elements.gameScreen.classList.add("analysis-mode");
+  elements.analysisPanel.classList.remove("is-hidden");
+  elements.evaluationGraphSection.classList.toggle("is-hidden", !showEvaluationGraph);
+  elements.modeName.textContent = "検討モード（対局棋譜）";
+  restoreHistory(history.length - 1);
+}
+
+
 function resetPosition() {
   stopAnalysis(false);
   requestSerial += 1;
@@ -470,6 +679,13 @@ function resetPosition() {
   aiThinking = false;
   history = [];
   historyIndex = -1;
+  if (mode === "match") resetMatchEvaluationState();
+  else {
+    matchEvaluations = [];
+    showEvaluationGraph = false;
+    postGamePromptShown = false;
+  }
+  elements.evaluationGraphSection.classList.add("is-hidden");
   resetAnalysisProgress(false);
   saveHistory();
   renderAll();
@@ -479,11 +695,13 @@ function resetPosition() {
 
 function startMode(nextMode) {
   mode = nextMode;
+  analysisFlipped = false;
   elements.modeScreen.classList.add("is-hidden");
   elements.gameScreen.classList.remove("is-hidden");
   elements.gameScreen.classList.toggle("match-mode", mode === "match");
   elements.gameScreen.classList.toggle("analysis-mode", mode === "analysis");
   elements.gameScreen.classList.toggle("gote-player", mode === "match" && humanSide === 1);
+  elements.gameScreen.classList.remove("flipped-view");
   elements.analysisPanel.classList.toggle("is-hidden", mode !== "analysis");
   elements.modeName.textContent = mode === "match" ? `対局モード（${humanSide === 0 ? "先手" : "後手"}）` : "検討モード";
   resetPosition();
@@ -502,14 +720,37 @@ function returnToModes() {
   requestSerial += 1;
   aiThinking = false;
   mode = null;
+  showEvaluationGraph = false;
+  elements.evaluationGraphSection.classList.add("is-hidden");
   elements.gameScreen.classList.add("is-hidden");
   elements.modeScreen.classList.remove("is-hidden");
 }
 
 
+function boardIsFlipped() {
+  if (mode === "match") return humanSide === 1;
+  return mode === "analysis" && analysisFlipped;
+}
+
+
+function updateBoardOrientation() {
+  const flipped = boardIsFlipped();
+  elements.gameScreen.classList.toggle("flipped-view", mode === "analysis" && flipped);
+  elements.flipBoard.setAttribute("aria-pressed", String(mode === "analysis" && flipped));
+  elements.flipBoard.title = flipped ? "先手側から表示" : "後手側から表示";
+}
+
+
+function toggleBoardOrientation() {
+  if (mode !== "analysis") return;
+  analysisFlipped = !analysisFlipped;
+  renderAll();
+}
+
+
 function renderBoard() {
   elements.board.replaceChildren();
-  const flipped = mode === "match" && humanSide === 1;
+  const flipped = boardIsFlipped();
   elements.board.classList.toggle("flipped", flipped);
   for (let displayRow = 0; displayRow < 9; displayRow += 1) {
     const row = flipped ? 8 - displayRow : displayRow;
@@ -545,7 +786,7 @@ function renderBoard() {
 
 
 function displaySquare(row, col) {
-  const flipped = mode === "match" && humanSide === 1;
+  const flipped = boardIsFlipped();
   return flipped ? [8 - row, 8 - col] : [row, col];
 }
 
@@ -607,6 +848,7 @@ function renderHand(owner, container) {
 
 
 function renderAll() {
+  updateBoardOrientation();
   renderBoard();
   renderHand(0, elements.blackHand);
   renderHand(1, elements.whiteHand);
@@ -620,6 +862,8 @@ function renderAll() {
   else elements.turnStatus.textContent = turn === 0 ? "先手の番" : "後手の番";
 
   updateHistoryButtons();
+  if (showEvaluationGraph) window.requestAnimationFrame(drawEvaluationGraph);
+  offerFinishedGameAnalysis();
 }
 
 
@@ -697,7 +941,8 @@ function completeMove(usiMove = null) {
   if (usiMove) moveList.push(usiMove);
   moveNumber += 1;
   turn = 1 - turn;
-  checkGameEnd();
+  const ended = checkGameEnd();
+  if (mode === "match" && ended) storeTerminalEvaluation();
   saveHistory();
   if (mode === "analysis") resetAnalysisProgress(analysisRunning);
   renderAll();
@@ -789,6 +1034,7 @@ function applyUsiMove(move) {
   if (!move || move === "resign") {
     gameOver = true;
     gameMessage = mode === "match" ? "AIが投了しました。あなたの勝ちです！" : "投了";
+    if (mode === "match") storeTerminalEvaluation(1 - turn, "投了");
     saveHistory();
     renderAll();
     return;
@@ -796,6 +1042,7 @@ function applyUsiMove(move) {
   if (move === "win") {
     gameOver = true;
     gameMessage = "AIの入玉宣言勝ちです。";
+    if (mode === "match") storeTerminalEvaluation(turn, "入玉宣言");
     saveHistory();
     renderAll();
     return;
@@ -864,6 +1111,28 @@ function deleteJson(url) {
 }
 
 
+async function captureMatchEvaluation(serial, movetime = 350) {
+  if (mode !== "match" || gameOver || serial !== requestSerial) return false;
+  const evaluatedMoveNumber = moveNumber;
+  const sideToMove = turn;
+  const sfen = makeSfen();
+  try {
+    const result = await postJson("/api/evaluate", { sfen, movetime });
+    if (
+      mode !== "match"
+      || serial !== requestSerial
+      || moveNumber !== evaluatedMoveNumber
+      || turn !== sideToMove
+    ) return false;
+    storeCandidateEvaluation(result.candidates?.[0], evaluatedMoveNumber, sideToMove);
+    return true;
+  } catch (_) {
+    // 評価値保存だけが失敗しても対局は継続する。
+    return false;
+  }
+}
+
+
 async function requestAiMove() {
   if (gameOver || mode !== "match" || turn !== aiSide() || aiThinking) return;
   const serial = ++requestSerial;
@@ -874,15 +1143,24 @@ async function requestAiMove() {
     const openingMove = await fixedAiOpeningMove();
     if (serial !== requestSerial || mode !== "match") return;
     if (openingMove) {
+      if (moveNumber > 0) await captureMatchEvaluation(serial);
+      if (serial !== requestSerial || mode !== "match") return;
       if (!isLegalStateMove(board, hands, turn, openingMove)) throw new Error(`固定序盤の指し手が不正です：${openingMove}`);
-      aiThinking = false;
       applyUsiMove(openingMove);
+      if (!gameOver) await captureMatchEvaluation(serial);
+      if (serial !== requestSerial || mode !== "match") return;
+      aiThinking = false;
+      renderAll();
       return;
     }
     const result = await postJson("/api/think", { sfen: makeSfen(), movetime: 5000 });
     if (serial !== requestSerial || mode !== "match") return;
-    aiThinking = false;
+    storeCandidateEvaluation(result.candidates?.[0], moveNumber, turn);
     applyUsiMove(result.bestmove);
+    if (!gameOver) await captureMatchEvaluation(serial);
+    if (serial !== requestSerial || mode !== "match") return;
+    aiThinking = false;
+    renderAll();
   } catch (error) {
     if (serial !== requestSerial) return;
     aiThinking = false;
@@ -1271,6 +1549,10 @@ function loadKifuMoves(moves) {
   gameOver = false;
   gameMessage = "";
   aiThinking = false;
+  matchEvaluations = [];
+  showEvaluationGraph = false;
+  postGamePromptShown = false;
+  elements.evaluationGraphSection.classList.add("is-hidden");
   history = [];
   historyIndex = -1;
   saveHistory();
@@ -1636,6 +1918,7 @@ elements.chooseGote.addEventListener("click", () => startMatch(1));
 elements.closeSide.addEventListener("click", () => elements.sideDialog.close());
 elements.backToModes.addEventListener("click", returnToModes);
 elements.resetGame.addEventListener("click", resetPosition);
+elements.flipBoard.addEventListener("click", toggleBoardOrientation);
 elements.historyStart.addEventListener("click", () => restoreHistory(0));
 elements.historyBack.addEventListener("click", () => restoreHistory(historyIndex - 1));
 elements.historyForward.addEventListener("click", () => restoreHistory(historyIndex + 1));
@@ -1644,6 +1927,24 @@ elements.analysisToggle.addEventListener("click", () => (analysisRunning ? stopA
 elements.copyKifu.addEventListener("click", showKifuCopyDialog);
 elements.pasteKifu.addEventListener("click", showKifuPasteDialog);
 elements.openingManager.addEventListener("click", showOpeningManager);
+elements.reviewFinishedGame.addEventListener("click", reviewFinishedGameInAnalysis);
+elements.dismissFinishedGame.addEventListener("click", () => elements.postGameAnalysisDialog.close());
+elements.evaluationGraph.addEventListener("click", (event) => moveToEvaluationGraphPosition(event.clientX));
+elements.evaluationGraph.addEventListener("keydown", (event) => {
+  if (event.key === "ArrowLeft" && historyIndex > 0) {
+    event.preventDefault();
+    restoreHistory(historyIndex - 1);
+  } else if (event.key === "ArrowRight" && historyIndex < history.length - 1) {
+    event.preventDefault();
+    restoreHistory(historyIndex + 1);
+  } else if (event.key === "Home" && history.length) {
+    event.preventDefault();
+    restoreHistory(0);
+  } else if (event.key === "End" && history.length) {
+    event.preventDefault();
+    restoreHistory(history.length - 1);
+  }
+});
 elements.closeKifu.addEventListener("click", () => elements.kifuDialog.close());
 elements.copyKifuText.addEventListener("click", showKifuCopyDialog);
 elements.loadKifu.addEventListener("click", () => {
@@ -1678,5 +1979,8 @@ elements.openingAdminLoginDialog.addEventListener("cancel", () => {
   elements.openingAdminLoginError.textContent = "";
 });
 elements.openingManagerDialog.addEventListener("cancel", () => setOpeningManagerStatus(""));
+window.addEventListener("resize", () => {
+  if (showEvaluationGraph) drawEvaluationGraph();
+});
 
 updateHistoryButtons();

@@ -299,16 +299,27 @@ class OpeningBook:
             if index % 2 == ai_side
         ]
 
+    def _matching_rule_locked(self, ai_side, history):
+        """Return the currently effective rule for an exact game history."""
+        dynamic_rules = []
+        for line in reversed(self.lines):
+            for rule in self._rules_from_line(line):
+                dynamic_rules.append({**rule, "source": line.get("name", "画面登録定跡")})
+        built_in_rules = [
+            {**rule, "source": "組み込み定跡"}
+            for rule in DEFAULT_OPENING_RULES
+        ]
+        for rule in dynamic_rules + built_in_rules:
+            if rule["ai_side"] == ai_side and self._pattern_matches(rule["pattern"], history):
+                return rule
+        return None
+
     def match(self, ai_side, history):
         self.ensure_loaded()
         with self.lock:
-            # 後から登録した定跡を優先し、既定定跡も管理画面から上書きできるようにする。
-            dynamic_rules = []
-            for line in reversed(self.lines):
-                dynamic_rules.extend(self._rules_from_line(line))
-            for rule in dynamic_rules + DEFAULT_OPENING_RULES:
-                if rule["ai_side"] == ai_side and self._pattern_matches(rule["pattern"], history):
-                    return rule["move"]
+            rule = self._matching_rule_locked(ai_side, history)
+            if rule is not None:
+                return rule["move"]
         return None
 
     def list_lines(self):
@@ -355,6 +366,20 @@ class OpeningBook:
         self.validate_line(name, ai_side, moves)
         self.ensure_loaded()
         with self.lock:
+            # 同じ分岐（同じ直前棋譜）ではAIの指し手を1通りに限定する。
+            # プレイヤー側の新しい分岐は追加できるが、既存の分岐を上書きする
+            # AI手は登録できない。仮仕様なので、この検査を外せば従来動作へ戻せる。
+            for index, move in enumerate(moves):
+                if index % 2 != ai_side:
+                    continue
+                existing = self._matching_rule_locked(ai_side, moves[:index])
+                if existing is not None and existing["move"] != move:
+                    raise OpeningBookError(
+                        f"{index + 1}手目のAIの指し手が既存の定跡"
+                        f"（{existing['source']}）と異なります。"
+                        f"（既存：{existing['move']}／新規：{move}）"
+                        "同じ分岐でAIの指し手は1通りだけ登録できます。"
+                    )
             line = {
                 "id": secrets.token_hex(8),
                 "name": name.strip(),

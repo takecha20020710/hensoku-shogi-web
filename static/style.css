@@ -325,11 +325,13 @@ a:focus-visible {
   transform: rotate(180deg);
 }
 
-.game-screen.gote-player .black-hand {
+.game-screen.gote-player .black-hand,
+.game-screen.flipped-view .black-hand {
   order: -1;
 }
 
-.game-screen.gote-player .white-hand {
+.game-screen.gote-player .white-hand,
+.game-screen.flipped-view .white-hand {
   order: 1;
 }
 
@@ -469,6 +471,16 @@ a:focus-visible {
 .square-button:disabled {
   cursor: default;
   opacity: 0.38;
+}
+
+.flip-button {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.flip-button[aria-pressed="true"] {
+  color: #fff;
+  background: #6f4a26;
 }
 
 .kifu-button {
@@ -618,6 +630,54 @@ a:focus-visible {
   color: #6f675d;
   overflow-wrap: anywhere;
   line-height: 1.45;
+}
+
+.evaluation-graph-section {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(106, 69, 34, 0.18);
+}
+
+.evaluation-graph-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 16px;
+  margin-bottom: 8px;
+}
+
+.evaluation-graph-heading h3,
+.evaluation-graph-heading p,
+.evaluation-graph-position {
+  margin: 0;
+}
+
+.evaluation-graph-heading h3 {
+  font-size: 0.98rem;
+}
+
+.evaluation-graph-heading p,
+.evaluation-graph-position {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.evaluation-graph {
+  width: 100%;
+  height: 210px;
+  display: block;
+  border: 1px solid rgba(106, 69, 34, 0.28);
+  border-radius: 10px;
+  background: #fffdf8;
+  cursor: crosshair;
+  touch-action: manipulation;
+}
+
+.evaluation-graph-position {
+  min-height: 1.4em;
+  margin-top: 6px;
+  text-align: center;
+  font-weight: 800;
 }
 
 .site-footer {
@@ -858,6 +918,22 @@ a:focus-visible {
 }
 
 .side-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.post-game-analysis-dialog form {
+  text-align: center;
+}
+
+.post-game-analysis-dialog p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.post-game-analysis-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
@@ -1105,6 +1181,30 @@ a:focus-visible {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .evaluation-graph-section {
+    margin-top: 6px;
+    padding-top: 6px;
+  }
+
+  .evaluation-graph-heading {
+    gap: 8px;
+    margin-bottom: 4px;
+  }
+
+  .evaluation-graph-heading h3 {
+    font-size: 0.72rem;
+  }
+
+  .evaluation-graph-heading p,
+  .evaluation-graph-position {
+    font-size: 0.6rem;
+  }
+
+  .evaluation-graph {
+    height: 150px;
+    border-radius: 7px;
   }
 
   .kifu-dialog form {
