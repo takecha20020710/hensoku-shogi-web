@@ -21,18 +21,6 @@ const CSA_PIECES = {
 };
 const SVG_NS = "http://www.w3.org/2000/svg";
 
-// 対局モード用の固定序盤。pattern はその時点までのUSI指し手で、nullは任意の手。
-// 上から順に照合するため、例外を通常手より先に置けば簡単に追加・変更できる。
-const MATCH_OPENING_RULES = [
-  { aiSide: 0, pattern: [], move: "5g5f" },
-  { aiSide: 0, pattern: ["5g5f", null], move: "2h5h" },
-  { aiSide: 1, pattern: [null], move: "5c5d" },
-  { aiSide: 1, pattern: ["7g7f", "5c5d", "8h3c"], move: "2b3c" },
-  { aiSide: 1, pattern: ["7g7f", "5c5d", "8h3c+"], move: "2b3c" },
-  { aiSide: 1, pattern: ["5g5f", "5c5d", "5f5e"], move: "5d5e" },
-  { aiSide: 1, pattern: [null, "5c5d", null], move: "8b5b" },
-];
-
 const elements = {
   modeScreen: document.querySelector("#mode-screen"),
   gameScreen: document.querySelector("#game-screen"),
@@ -70,6 +58,7 @@ const elements = {
   })),
   copyKifu: document.querySelector("#copy-kifu"),
   pasteKifu: document.querySelector("#paste-kifu"),
+  openingManager: document.querySelector("#opening-manager"),
   kifuDialog: document.querySelector("#kifu-dialog"),
   closeKifu: document.querySelector("#close-kifu"),
   kifuText: document.querySelector("#kifu-text"),
@@ -85,6 +74,20 @@ const elements = {
   passwordInput: document.querySelector("#analysis-password"),
   passwordError: document.querySelector("#password-error"),
   closePassword: document.querySelector("#close-password"),
+  openingAdminLoginDialog: document.querySelector("#opening-admin-login-dialog"),
+  openingAdminLoginForm: document.querySelector("#opening-admin-login-form"),
+  openingAdminPassword: document.querySelector("#opening-admin-password"),
+  openingAdminLoginError: document.querySelector("#opening-admin-login-error"),
+  closeOpeningAdminLogin: document.querySelector("#close-opening-admin-login"),
+  openingManagerDialog: document.querySelector("#opening-manager-dialog"),
+  closeOpeningManager: document.querySelector("#close-opening-manager"),
+  openingName: document.querySelector("#opening-name"),
+  openingAiSide: document.querySelector("#opening-ai-side"),
+  openingCurrentLine: document.querySelector("#opening-current-line"),
+  registerOpeningLine: document.querySelector("#register-opening-line"),
+  openingManagerStatus: document.querySelector("#opening-manager-status"),
+  openingStorageStatus: document.querySelector("#opening-storage-status"),
+  openingLineList: document.querySelector("#opening-line-list"),
 };
 
 let mode = null;
@@ -114,6 +117,8 @@ let latestAnalysisNps = 0;
 let hasAnalysisResult = false;
 let latestCandidates = [];
 let moveList = [];
+let managedOpeningLines = [];
+let openingPersistenceReady = false;
 
 
 function emptyHands() {
@@ -410,14 +415,14 @@ function isAiTurn() {
 }
 
 
-function openingPatternMatches(pattern) {
-  return pattern.length === moveList.length && pattern.every((move, index) => move == null || move === moveList[index]);
-}
-
-
-function fixedAiOpeningMove() {
-  const side = aiSide();
-  return MATCH_OPENING_RULES.find((rule) => rule.aiSide === side && openingPatternMatches(rule.pattern))?.move || null;
+async function fixedAiOpeningMove() {
+  try {
+    const result = await postJson("/api/opening-move", { ai_side: aiSide(), history: moveList });
+    return typeof result.move === "string" ? result.move : null;
+  } catch (_) {
+    // 定跡照合だけが失敗した場合は、対局を止めず通常エンジンへ切り替える。
+    return null;
+  }
 }
 
 
@@ -831,16 +836,36 @@ function applyUsiMove(move) {
 }
 
 
-async function postJson(url, body, signal = null) {
+async function requestJson(url, options = {}) {
   const response = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal,
+    ...options,
+    headers: {
+      ...(options.body ? { "Content-Type": "application/json" } : {}),
+      ...(options.headers || {}),
+    },
   });
   const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data.error || "通信に失敗しました。");
+  if (!response.ok) {
+    const error = new Error(data.error || "通信に失敗しました。");
+    error.status = response.status;
+    throw error;
+  }
   return data;
+}
+
+
+function getJson(url) {
+  return requestJson(url);
+}
+
+
+function postJson(url, body, signal = null) {
+  return requestJson(url, { method: "POST", body: JSON.stringify(body), signal });
+}
+
+
+function deleteJson(url) {
+  return requestJson(url, { method: "DELETE" });
 }
 
 
@@ -851,10 +876,10 @@ async function requestAiMove() {
   gameMessage = "";
   renderAll();
   try {
-    const openingMove = fixedAiOpeningMove();
+    const openingMove = await fixedAiOpeningMove();
+    if (serial !== requestSerial || mode !== "match") return;
     if (openingMove) {
       if (!isLegalStateMove(board, hands, turn, openingMove)) throw new Error(`固定序盤の指し手が不正です：${openingMove}`);
-      if (serial !== requestSerial || mode !== "match") return;
       aiThinking = false;
       applyUsiMove(openingMove);
       return;
@@ -1336,6 +1361,149 @@ async function showKifuPasteDialog() {
 }
 
 
+function formatOpeningMoves(moves) {
+  if (!Array.isArray(moves) || !moves.length) return "まだ指し手がありません。";
+  const virtualBoard = initialBoard();
+  const virtualHands = emptyHands();
+  let virtualTurn = 0;
+  let previousDestination = null;
+  const result = [];
+  for (let index = 0; index < moves.length; index += 1) {
+    const move = moves[index];
+    try {
+      result.push(`${index + 1}. ${virtualTurn === 0 ? "▲" : "△"}${japaneseMove(move, virtualBoard, previousDestination)}`);
+      previousDestination = applyVirtualMove(virtualBoard, virtualHands, virtualTurn, move);
+    } catch (_) {
+      result.push(`${index + 1}. ${move}`);
+    }
+    virtualTurn = 1 - virtualTurn;
+  }
+  return result.join(" → ");
+}
+
+
+function setOpeningManagerStatus(message, success = false) {
+  elements.openingManagerStatus.textContent = message;
+  elements.openingManagerStatus.classList.toggle("success", success);
+}
+
+
+function updateOpeningStorageStatus() {
+  elements.openingStorageStatus.classList.toggle("ready", openingPersistenceReady);
+  elements.openingStorageStatus.textContent = openingPersistenceReady
+    ? "永続保存：準備済み（登録後、全対局へすぐ反映されます）"
+    : "永続保存：未設定（RenderにOPENING_BOOK_GITHUB_TOKENを設定すると登録できます）";
+  elements.registerOpeningLine.disabled = !openingPersistenceReady || moveList.length === 0;
+}
+
+
+function renderManagedOpeningLines() {
+  elements.openingLineList.replaceChildren();
+  if (!managedOpeningLines.length) {
+    const empty = document.createElement("p");
+    empty.className = "opening-empty";
+    empty.textContent = "画面から登録した定跡はまだありません。組み込み定跡は対局で有効です。";
+    elements.openingLineList.append(empty);
+    return;
+  }
+
+  for (const line of [...managedOpeningLines].reverse()) {
+    const item = document.createElement("article");
+    item.className = "opening-line-item";
+
+    const title = document.createElement("h4");
+    title.className = "opening-line-title";
+    title.textContent = `${line.name}（AI：${Number(line.ai_side) === 0 ? "先手" : "後手"}）`;
+
+    const deleteButton = document.createElement("button");
+    deleteButton.type = "button";
+    deleteButton.className = "opening-delete-button";
+    deleteButton.textContent = "削除";
+    deleteButton.addEventListener("click", async () => {
+      if (!window.confirm(`「${line.name}」を削除しますか？`)) return;
+      deleteButton.disabled = true;
+      setOpeningManagerStatus("削除中...");
+      try {
+        const result = await deleteJson(`/api/opening-admin/lines/${line.id}`);
+        managedOpeningLines = result.lines || [];
+        renderManagedOpeningLines();
+        setOpeningManagerStatus("定跡を削除し、対局へ反映しました。", true);
+      } catch (error) {
+        deleteButton.disabled = false;
+        setOpeningManagerStatus(error.message);
+      }
+    });
+
+    const moves = document.createElement("p");
+    moves.className = "opening-line-moves";
+    moves.textContent = formatOpeningMoves(line.moves);
+
+    item.append(title, deleteButton, moves);
+    elements.openingLineList.append(item);
+  }
+}
+
+
+async function refreshOpeningManager() {
+  const result = await getJson("/api/opening-admin/lines");
+  managedOpeningLines = result.lines || [];
+  openingPersistenceReady = Boolean(result.persistence_ready);
+  elements.openingCurrentLine.textContent = formatOpeningMoves(moveList);
+  updateOpeningStorageStatus();
+  renderManagedOpeningLines();
+  setOpeningManagerStatus("");
+}
+
+
+async function showOpeningManager() {
+  try {
+    await refreshOpeningManager();
+    if (!elements.openingManagerDialog.open) elements.openingManagerDialog.showModal();
+  } catch (error) {
+    if (error.status !== 403) {
+      gameMessage = error.message;
+      renderAll();
+      return;
+    }
+    elements.openingAdminLoginError.textContent = "";
+    elements.openingAdminPassword.value = "";
+    elements.openingAdminLoginDialog.showModal();
+    window.setTimeout(() => elements.openingAdminPassword.focus(), 0);
+  }
+}
+
+
+async function registerCurrentOpening() {
+  const name = elements.openingName.value.trim();
+  if (!name) {
+    setOpeningManagerStatus("定跡名を入力してください。");
+    elements.openingName.focus();
+    return;
+  }
+  if (!moveList.length) {
+    setOpeningManagerStatus("検討盤で1手以上並べてから登録してください。");
+    return;
+  }
+  elements.registerOpeningLine.disabled = true;
+  setOpeningManagerStatus("定跡を保存中...");
+  try {
+    const result = await postJson("/api/opening-admin/lines", {
+      name,
+      ai_side: Number(elements.openingAiSide.value),
+      moves: [...moveList],
+    });
+    managedOpeningLines = result.lines || [];
+    elements.openingName.value = "";
+    renderManagedOpeningLines();
+    setOpeningManagerStatus("定跡を登録し、対局へすぐ反映しました。", true);
+  } catch (error) {
+    setOpeningManagerStatus(error.message);
+  } finally {
+    updateOpeningStorageStatus();
+  }
+}
+
+
 function formatNodeCount(value) {
   const nodes = Math.max(0, Math.floor(Number(value) || 0));
   if (nodes >= 100_000_000) return `${(nodes / 100_000_000).toFixed(nodes >= 1_000_000_000 ? 1 : 2)}億局面`;
@@ -1476,6 +1644,7 @@ elements.historyEnd.addEventListener("click", () => restoreHistory(history.lengt
 elements.analysisToggle.addEventListener("click", () => (analysisRunning ? stopAnalysis() : startAnalysis()));
 elements.copyKifu.addEventListener("click", showKifuCopyDialog);
 elements.pasteKifu.addEventListener("click", showKifuPasteDialog);
+elements.openingManager.addEventListener("click", showOpeningManager);
 elements.closeKifu.addEventListener("click", () => elements.kifuDialog.close());
 elements.copyKifuText.addEventListener("click", showKifuCopyDialog);
 elements.loadKifu.addEventListener("click", () => {
@@ -1490,6 +1659,22 @@ elements.loadKifu.addEventListener("click", () => {
   }
 });
 elements.closePassword.addEventListener("click", () => elements.passwordDialog.close());
+elements.closeOpeningAdminLogin.addEventListener("click", () => elements.openingAdminLoginDialog.close());
+elements.closeOpeningManager.addEventListener("click", () => elements.openingManagerDialog.close());
+elements.registerOpeningLine.addEventListener("click", registerCurrentOpening);
+elements.openingAdminLoginForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  elements.openingAdminLoginError.textContent = "";
+  try {
+    await postJson("/api/opening-admin/login", { password: elements.openingAdminPassword.value });
+    elements.openingAdminLoginDialog.close();
+    await refreshOpeningManager();
+    elements.openingManagerDialog.showModal();
+  } catch (error) {
+    elements.openingAdminLoginError.textContent = error.message;
+    elements.openingAdminPassword.select();
+  }
+});
 elements.passwordForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   elements.passwordError.textContent = "";
@@ -1508,5 +1693,9 @@ elements.passwordDialog.addEventListener("cancel", () => {
 });
 
 elements.kifuDialog.addEventListener("cancel", () => setKifuStatus(""));
+elements.openingAdminLoginDialog.addEventListener("cancel", () => {
+  elements.openingAdminLoginError.textContent = "";
+});
+elements.openingManagerDialog.addEventListener("cancel", () => setOpeningManagerStatus(""));
 
 updateHistoryButtons();
