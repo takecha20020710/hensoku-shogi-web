@@ -45,9 +45,18 @@ USE_AVX2_ENGINE = AVX2_ENGINE_PATH.is_file() and {"avx2", "bmi2"}.issubset(CPU_F
 ENGINE_PATH = AVX2_ENGINE_PATH if USE_AVX2_ENGINE else CONFIGURED_ENGINE_PATH
 ENGINE_TARGET = "AVX2" if USE_AVX2_ENGINE else "SSE42"
 OPENING_ADMIN_PASSWORD = os.environ.get("OPENING_ADMIN_PASSWORD")
-# The newly deployed experiment is ON when the variable is absent. Setting the
-# Render value to "false" is the explicit, one-step rollback to the baseline.
+# The pawn-only experiment is ON when the variable is absent. With the attack
+# experiment disabled, setting this to false restores the material baseline.
 VARIANT_PAWN_EVAL_ENABLED = os.environ.get("VARIANT_PAWN_EVAL", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+    "experimental",
+}
+# 攻撃型v2は、既存サービスで環境変数が未設定でも有効にする。
+# falseにすれば昨日の歩評価だけの状態へ即座に戻せる。
+VARIANT_ATTACK_EVAL_ENABLED = os.environ.get("VARIANT_ATTACK_EVAL", "true").strip().lower() in {
     "1",
     "true",
     "yes",
@@ -151,12 +160,15 @@ class YaneuraOu:
         # A larger transposition table improves repeated analysis while staying
         # comfortably inside Render Free's 512 MB memory limit.
         self._send("setoption name USI_Hash value 128")
-        # The experimental profile changes only pawn-related positional terms.
-        # The engine-side default is false, so switching this environment value
-        # off immediately restores the exact baseline evaluation.
+        # Engine-side defaults are false. The two switches preserve both the
+        # original material baseline and yesterday's pawn-only experiment.
         self._send(
             "setoption name VariantPawnEval value "
             + ("true" if VARIANT_PAWN_EVAL_ENABLED else "false")
+        )
+        self._send(
+            "setoption name VariantAttackEval value "
+            + ("true" if VARIANT_ATTACK_EVAL_ENABLED else "false")
         )
         self._send("isready")
         self._read_until(lambda line: line == "readyok", 30)
@@ -428,6 +440,8 @@ def health():
             "evaluation_graph_version": 1,
             "variant_pawn_eval": VARIANT_PAWN_EVAL_ENABLED,
             "variant_pawn_eval_version": 1,
+            "variant_attack_eval": VARIANT_ATTACK_EVAL_ENABLED,
+            "variant_attack_eval_version": 2,
         }
     )
 
