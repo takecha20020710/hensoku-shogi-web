@@ -19,9 +19,9 @@ jobs:
 
       - uses: msys2/setup-msys2@v2
         with:
-          msystem: UCRT64
+          msystem: MINGW64
           update: true
-          install: git make mingw-w64-ucrt-x86_64-gcc
+          install: git make mingw-w64-x86_64-gcc
 
       - name: Build current variant evaluation
         shell: msys2 {0}
