@@ -27,6 +27,7 @@ jobs:
         shell: msys2 {0}
         run: |
           git clone --filter=blob:none --no-checkout https://github.com/yaneurao/YaneuraOu.git YaneuraOu
+          git -C YaneuraOu config core.autocrlf false
           git -C YaneuraOu fetch --depth 1 origin 33ccf1f907eb7184889fa23051243f81ab0bf973
           git -C YaneuraOu checkout --detach FETCH_HEAD
           git -C YaneuraOu apply --check ../patches/yaneuraou-variant-rule.patch
