@@ -57,6 +57,8 @@ def test_index_and_health():
     assert health["threads"] == 1
     assert health["hash_mb"] == 128
     assert health["engine_target"] in ("SSE42", "AVX2")
+    assert health["variant_attack_eval"] is True
+    assert health["variant_attack_eval_version"] == 2
     assert health["variant_pawn_eval"] is True
     assert health["variant_pawn_eval_version"] == 1
 
