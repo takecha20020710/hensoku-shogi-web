@@ -4,6 +4,8 @@ from unittest.mock import ANY, patch
 os.environ.setdefault("OPENING_ADMIN_PASSWORD", "test-password")
 os.environ.setdefault("SECRET_KEY", "test-secret")
 os.environ.setdefault("VARIANT_PAWN_EVAL", "true")
+os.environ.setdefault("VARIANT_ATTACK_EVAL", "true")
+os.environ.setdefault("VARIANT_HOME_ATTACK_EVAL", "true")
 
 import app as webapp
 from opening_book import OpeningBook, OpeningBookError
@@ -59,6 +61,8 @@ def test_index_and_health():
     assert health["engine_target"] in ("SSE42", "AVX2")
     assert health["variant_attack_eval"] is True
     assert health["variant_attack_eval_version"] == 2
+    assert health["variant_home_attack_eval"] is True
+    assert health["variant_home_attack_eval_version"] == 3
     assert health["variant_pawn_eval"] is True
     assert health["variant_pawn_eval_version"] == 1
 

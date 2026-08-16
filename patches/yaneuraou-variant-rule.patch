@@ -1,7 +1,8 @@
 diff --git a/source/engine/yaneuraou-engine/yaneuraou-search.cpp b/source/engine/yaneuraou-engine/yaneuraou-search.cpp
+index 5233fd1..22090a9 100644
 --- a/source/engine/yaneuraou-engine/yaneuraou-search.cpp
 +++ b/source/engine/yaneuraou-engine/yaneuraou-search.cpp
-@@ -2428,6 +2428,22 @@ Value Search::YaneuraOuWorker::search(Position& pos, Stack* ss, Value alpha, Val
+@@ -2428,6 +2428,22 @@ Value YaneuraOuWorker::search(Position& pos, Stack* ss, Value alpha, Value beta,
      //  RootNode以外での処理
      // -----------------------
  
@@ -48,39 +49,30 @@ diff --git a/source/engine/yaneuraou-engine/yaneuraou-search.cpp b/source/engine
      if (draw_type != REPETITION_NONE)
      /*
 diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/evaluate_material.cpp
-index 999f98b..c35cf8b 100644
+index d4d7715..197dba1 100644
 --- a/source/eval/material/evaluate_material.cpp
 +++ b/source/eval/material/evaluate_material.cpp
-@@ -2,9 +2,10 @@
- 
- #if defined(EVAL_MATERIAL)
- 
--#include "../../types.h"
--#include "../../position.h"
--#include "../../evaluate.h"
-+#include "../../types.h"
-+#include "../../position.h"
-+#include "../../evaluate.h"
+@@ -5,6 +5,7 @@
+ #include "../../types.h"
+ #include "../../position.h"
+ #include "../../evaluate.h"
 +#include "../../usioption.h"
  
  // パラメーターの自動調整フレームワーク
  #include <array>
-@@ -27,13 +28,249 @@ namespace Eval {
+@@ -27,12 +28,340 @@ namespace Eval {
  	// これでも3990XだとR2300ぐらいある。
  	// (序盤を定跡などでうまく乗り切れれば)
  
 -	void add_options(OptionsMap&, ThreadPool&) {}
 -	Value compute_eval(const Position& pos) {
--		auto score = pos.state()->materialValue;
--		ASSERT_LV5(pos.state()->materialValue == Eval::material(pos));
--
--		return pos.side_to_move() == BLACK ? score : -score;
--	}
 +	// 評価実験はUSIオプションで段階的に分離する。
-+	// VariantPawnEval=true, VariantAttackEval=false で昨日の歩評価へ戻せる。
-+	// 両方falseなら、従来の純粋な駒得評価へ戻る。
++	// VariantHomeAttackEval=false で攻撃型v2へ戻せる。
++	// VariantPawnEval=true, VariantAttackEval=false で歩評価v1へ戻せる。
++	// VariantAttackEvalとVariantPawnEvalが両方falseなら従来評価へ戻る。
 +	bool variant_pawn_eval_enabled = false;
 +	bool variant_attack_eval_enabled = false;
++	bool variant_home_attack_eval_enabled = false;
 +
 +	void add_options(OptionsMap& options, ThreadPool&)
 +	{
@@ -90,6 +82,10 @@ index 999f98b..c35cf8b 100644
 +		}));
 +		options.add("VariantAttackEval", Option(false, [](const Option& option) {
 +			variant_attack_eval_enabled = int64_t(option) != 0;
++			return std::nullopt;
++		}));
++		options.add("VariantHomeAttackEval", Option(false, [](const Option& option) {
++			variant_home_attack_eval_enabled = int64_t(option) != 0;
 +			return std::nullopt;
 +		}));
 +	}
@@ -287,6 +283,88 @@ index 999f98b..c35cf8b 100644
 +		return color_score(BLACK) - color_score(WHITE);
 +	}
 +
++	// 居玉・左右歩攻めv3の評価。v2へ加算する独立項にして、すぐ戻せるようにする。
++	// 自玉は序盤ほど初期位置に残し、相手が居玉なら4筋・6筋の歩攻めを優先する。
++	Value variant_home_attack_score(const Position& pos)
++	{
++		const auto color_score = [&](Color color) {
++			int score = 0;
++			const Color opponent = ~color;
++			const Square own_king = pos.square<KING>(color);
++			const Square opponent_king = pos.square<KING>(opponent);
++			const Square own_home = color == BLACK ? SQ_59 : SQ_51;
++			const Square opponent_home = opponent == BLACK ? SQ_59 : SQ_51;
++			const int game_ply = pos.game_ply();
++
++			// 40手目までは居玉を強く維持する。以後も急に評価を消さず、
++			// 終盤の必要な玉移動を妨げない程度までなだらかに弱める。
++			const int home_percent = game_ply <= 40
++				? 100
++				: (std::max)(20, 100 - (game_ply - 40) * 4);
++			if (own_king == own_home)
++				score += 180 * home_percent / 100;
++			else
++			{
++				// 4二玉・6二玉（先手なら4八玉・6八玉）のように一段上がる手は、
++				// 相手の歩攻めの目標を作るため、横移動よりさらに強く抑える。
++				const int forward = (std::max)(0,
++					int(RANK_9) - int(relative_rank(color, rank_of(own_king))));
++				score -= (std::min)(forward, 3) * 75 * home_percent / 100;
++			}
++
++			// 相手玉が初期位置にいるとき、玉の両隣（4筋・6筋）の歩を進め、
++			// 6六歩・同歩・6七歩型（左右反転を含む）で歩を渡す攻めを評価する。
++			if (opponent_king == opponent_home)
++			{
++				static constexpr int side_pawn_bonus[7] = {
++					0, 70, 205, 330, 420, 480, 520
++				};
++				const int attack_percent = game_ply <= 40
++					? 100
++					: (std::max)(40, 100 - (game_ply - 40) * 3);
++
++				// 後手が攻める場合は4筋が相手飛車側、6筋が相手角側。
++				// 先手では盤面を反転した6筋・4筋がそれぞれに対応する。
++				const File rook_side_file = color == BLACK ? FILE_6 : FILE_4;
++				const File bishop_side_file = color == BLACK ? FILE_4 : FILE_6;
++				const auto add_side_pawn = [&](File file, bool rook_side) {
++					Bitboard pawns = pos.pieces(color, PAWN) & file_bb(file);
++					if (!pawns)
++						return;
++
++					const Square sq = pawns.pop();
++					const int advance = color == BLACK
++						? (std::max)(0, int(RANK_7) - int(rank_of(sq)))
++						: (std::max)(0, int(rank_of(sq)) - int(RANK_3));
++					score += side_pawn_bonus[(std::min)(advance, 6)] * attack_percent / 100;
++
++					// どちらも有力だが、6四のストッパーを残せる相手飛車側を少し優先。
++					if (rook_side && advance >= 2)
++						score += 14 * attack_percent / 100;
++				};
++				add_side_pawn(rook_side_file, true);
++				add_side_pawn(bishop_side_file, false);
++
++				// 97角（先後反転時は13角）の押し売りを止める64歩を小さく評価。
++				// 相手角が初期位置または端角にいる場合だけなので、角が働かない局面では
++				// 4筋・6筋の優先差を不要に固定しない。
++				const Square stopper = color == BLACK ? SQ_46 : SQ_64;
++				const Square bishop_start = color == BLACK ? SQ_22 : SQ_88;
++				const Square edge_bishop = color == BLACK ? SQ_13 : SQ_97;
++				const Piece opponent_bishop = make_piece(opponent, BISHOP);
++				const bool bishop_can_use_edge =
++					pos.piece_on(bishop_start) == opponent_bishop
++					|| pos.piece_on(edge_bishop) == opponent_bishop;
++				if (pos.piece_on(stopper) == make_piece(color, PAWN) && bishop_can_use_edge)
++					score += 22 * attack_percent / 100;
++			}
++
++			return score;
++		};
++
++		return color_score(BLACK) - color_score(WHITE);
++	}
++
 +	Value compute_eval(const Position& pos)
 +	{
 +		const Color us = pos.side_to_move();
@@ -309,17 +387,25 @@ index 999f98b..c35cf8b 100644
 +		if (hand_total(us) >= 3)
 +			return Value(-32000);
 +
-+		auto score = pos.state()->materialValue;
-+		ASSERT_LV5(pos.state()->materialValue == Eval::material(pos));
-+
+ 		auto score = pos.state()->materialValue;
+ 		ASSERT_LV5(pos.state()->materialValue == Eval::material(pos));
+ 
+-		return pos.side_to_move() == BLACK ? score : -score;
 +		if (variant_attack_eval_enabled)
++		{
 +			score += variant_attack_score(pos);
++			if (variant_home_attack_eval_enabled)
++				score += variant_home_attack_score(pos);
++		}
 +		else if (variant_pawn_eval_enabled)
 +			score += variant_pawn_score(pos);
 +
 +		return us == BLACK ? score : -score;
-+	}
+ 	}
  
  #elif MATERIAL_LEVEL == 2
+@@ -906,4 +1235,3 @@ namespace Eval {
+ } // namespace YaneuraOu
  
-
+ #endif // defined(EVAL_MATERIAL)
+-

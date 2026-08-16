@@ -63,6 +63,16 @@ VARIANT_ATTACK_EVAL_ENABLED = os.environ.get("VARIANT_ATTACK_EVAL", "true").stri
     "on",
     "experimental",
 }
+# 居玉・左右歩攻めv3はv2に加算する独立項。falseでv2へ即時復帰できる。
+VARIANT_HOME_ATTACK_EVAL_ENABLED = os.environ.get(
+    "VARIANT_HOME_ATTACK_EVAL", "true"
+).strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+    "experimental",
+}
 
 app = Flask(__name__)
 app.config.update(
@@ -160,8 +170,8 @@ class YaneuraOu:
         # A larger transposition table improves repeated analysis while staying
         # comfortably inside Render Free's 512 MB memory limit.
         self._send("setoption name USI_Hash value 128")
-        # Engine-side defaults are false. The two switches preserve both the
-        # original material baseline and yesterday's pawn-only experiment.
+        # Engine-side defaults are false. The switches keep v3, v2, v1 and the
+        # original material baseline independently reversible.
         self._send(
             "setoption name VariantPawnEval value "
             + ("true" if VARIANT_PAWN_EVAL_ENABLED else "false")
@@ -169,6 +179,10 @@ class YaneuraOu:
         self._send(
             "setoption name VariantAttackEval value "
             + ("true" if VARIANT_ATTACK_EVAL_ENABLED else "false")
+        )
+        self._send(
+            "setoption name VariantHomeAttackEval value "
+            + ("true" if VARIANT_HOME_ATTACK_EVAL_ENABLED else "false")
         )
         self._send("isready")
         self._read_until(lambda line: line == "readyok", 30)
@@ -442,6 +456,8 @@ def health():
             "variant_pawn_eval_version": 1,
             "variant_attack_eval": VARIANT_ATTACK_EVAL_ENABLED,
             "variant_attack_eval_version": 2,
+            "variant_home_attack_eval": VARIANT_HOME_ATTACK_EVAL_ENABLED,
+            "variant_home_attack_eval_version": 3,
         }
     )
 
