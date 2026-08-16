@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "started_at": "2026-08-16T14:54:16.013Z",
+  "updated_at": "2026-08-16T14:54:16.013Z",
+  "sente": {
+    "wins": 0,
+    "losses": 0
+  },
+  "gote": {
+    "wins": 0,
+    "losses": 0
+  },
+  "processed_games": []
+}
