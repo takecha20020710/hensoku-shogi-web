@@ -97,6 +97,65 @@ a:focus-visible {
   gap: 12px;
 }
 
+.ai-record {
+  margin-top: 24px;
+  padding: 16px;
+  border: 1px solid rgba(106, 69, 34, 0.2);
+  border-radius: 14px;
+  background: rgba(216, 170, 91, 0.1);
+  text-align: left;
+}
+
+.ai-record-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.ai-record-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.ai-record-heading span,
+.ai-record-note {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.ai-record-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.ai-record-grid p {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 10px;
+  border-radius: 9px;
+  background: rgba(255, 250, 240, 0.88);
+}
+
+.ai-record-grid span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.ai-record-grid strong {
+  font-size: 1.05rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ai-record-note {
+  margin: 9px 0 0;
+  line-height: 1.5;
+}
+
 .primary-button,
 .secondary-button {
   min-height: 52px;
@@ -174,6 +233,8 @@ a:focus-visible {
 }
 
 .game-layout {
+  position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: 120px minmax(0, 630px) 120px;
   justify-content: center;
@@ -187,6 +248,7 @@ a:focus-visible {
 
 .board-stage {
   position: relative;
+  z-index: 2;
   width: 100%;
   aspect-ratio: 1;
 }
@@ -225,26 +287,23 @@ a:focus-visible {
 
 .candidate-arrow.best {
   stroke: #e53935;
-  marker-end: url("#best-arrow-head");
 }
 
 .candidate-arrow.second {
   stroke: #f0b90b;
-  marker-end: url("#second-arrow-head");
 }
 
-.candidate-drop {
-  fill: none;
-  stroke-width: 0.14;
-  opacity: 0.92;
+.candidate-arrow-head {
+  opacity: 0.95;
+  filter: drop-shadow(0 0.04px 0.04px rgba(255, 255, 255, 0.8));
 }
 
-.candidate-drop.best {
-  stroke: #e53935;
+.candidate-arrow-head.best {
+  fill: #e53935;
 }
 
-.candidate-drop.second {
-  stroke: #f0b90b;
+.candidate-arrow-head.second {
+  fill: #f0b90b;
 }
 
 .square {
@@ -340,6 +399,8 @@ a:focus-visible {
 }
 
 .hand-panel {
+  position: relative;
+  z-index: 1;
   min-height: 100%;
   padding: 14px 10px;
   background: rgba(230, 202, 150, 0.8);
@@ -931,6 +992,23 @@ a:focus-visible {
 .post-game-analysis-dialog p:not(.eyebrow) {
   color: var(--muted);
   line-height: 1.7;
+}
+
+.resign-dialog form {
+  text-align: center;
+}
+
+.resign-dialog p:not(.eyebrow) {
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.danger-button {
+  background: #9c2e24;
+}
+
+.danger-button:hover {
+  background: #742018;
 }
 
 .post-game-analysis-actions {

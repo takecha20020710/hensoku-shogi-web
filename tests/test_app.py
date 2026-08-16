@@ -8,6 +8,7 @@ os.environ.setdefault("VARIANT_ATTACK_EVAL", "true")
 os.environ.setdefault("VARIANT_HOME_ATTACK_EVAL", "true")
 
 import app as webapp
+from game_stats import GameStats
 from opening_book import OpeningBook, OpeningBookError
 
 
@@ -53,6 +54,9 @@ def test_index_and_health():
     assert b'choose-sente' in page.data
     assert b'choose-gote' in page.data
     assert b'post-game-analysis-dialog' in page.data
+    assert b'resign-dialog' in page.data
+    assert b'ai-sente-record' in page.data
+    assert b'ai-gote-record' in page.data
     assert "思考エンジン" not in page.get_data(as_text=True)
     health = client.get("/api/health").get_json()
     assert health["ok"] is True
@@ -65,6 +69,34 @@ def test_index_and_health():
     assert health["variant_home_attack_eval_version"] == 3
     assert health["variant_pawn_eval"] is True
     assert health["variant_pawn_eval_version"] == 1
+    assert health["candidate_arrow_version"] == 2
+    assert health["game_stats_version"] == 1
+
+
+def test_game_stats_signed_result_and_duplicate_protection(monkeypatch):
+    monkeypatch.delenv("GAME_STATS_GITHUB_TOKEN", raising=False)
+    monkeypatch.delenv("OPENING_BOOK_GITHUB_TOKEN", raising=False)
+    local_stats = GameStats()
+    client = webapp.app.test_client()
+
+    with patch.object(webapp, "game_stats", local_stats):
+        initial = client.get("/api/game-stats")
+        assert initial.status_code == 200
+        assert initial.headers["Cache-Control"] == "no-store"
+
+        sente_token = client.post("/api/game/start", json={"ai_side": 0}).get_json()["game_token"]
+        first = client.post("/api/game/result", json={"game_token": sente_token, "winner": 0})
+        duplicate = client.post("/api/game/result", json={"game_token": sente_token, "winner": 0})
+        assert first.status_code == 200
+        assert duplicate.status_code == 200
+        assert duplicate.get_json()["stats"]["sente"] == {"wins": 1, "losses": 0}
+
+        gote_token = client.post("/api/game/start", json={"ai_side": 1}).get_json()["game_token"]
+        second = client.post("/api/game/result", json={"game_token": gote_token, "winner": 0})
+        assert second.get_json()["stats"]["gote"] == {"wins": 0, "losses": 1}
+
+        invalid = client.post("/api/game/result", json={"game_token": "altered", "winner": 1})
+        assert invalid.status_code == 400
 
 
 def test_analysis_is_public_and_admin_is_separate():

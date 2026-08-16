@@ -1,0 +1,50 @@
+name: Build Windows engine
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - patches/yaneuraou-variant-rule.patch
+      - engine-package/**
+      - .github/workflows/build-windows-engine.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build-material-x64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: git make mingw-w64-ucrt-x86_64-gcc
+
+      - name: Build current variant evaluation
+        shell: msys2 {0}
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/yaneurao/YaneuraOu.git YaneuraOu
+          git -C YaneuraOu fetch --depth 1 origin 33ccf1f907eb7184889fa23051243f81ab0bf973
+          git -C YaneuraOu checkout --detach FETCH_HEAD
+          git -C YaneuraOu apply --check ../patches/yaneuraou-variant-rule.patch
+          git -C YaneuraOu apply ../patches/yaneuraou-variant-rule.patch
+          cd YaneuraOu/source
+          make clean YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL
+          make -j2 normal COMPILER=g++ YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL ENGINE_NAME=HensokuShogi-Material-AVX2 TARGET_CPU=AVX2
+          mkdir -p ../../dist
+          cp YaneuraOu-by-gcc.exe ../../dist/HensokuShogi-Material-AVX2.exe
+          make clean YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL
+          make -j2 normal COMPILER=g++ YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL ENGINE_NAME=HensokuShogi-Material-SSE42 TARGET_CPU=SSE42
+          cp YaneuraOu-by-gcc.exe ../../dist/HensokuShogi-Material-SSE42.exe
+          cp ../../engine-package/README.txt ../../dist/README.txt
+          cp ../LICENSE ../../dist/YaneuraOu-LICENSE.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: HensokuShogi-Material-Windows-x64
+          path: dist
+          if-no-files-found: error
+          retention-days: 90

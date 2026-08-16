@@ -12,7 +12,9 @@ from collections import defaultdict, deque
 from pathlib import Path
 
 from flask import Flask, jsonify, render_template, request, session
+from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
+from game_stats import GameStats, GameStatsError
 from opening_book import OpeningBook, OpeningBookError, USI_MOVE_RE
 
 
@@ -170,8 +172,8 @@ class YaneuraOu:
         # A larger transposition table improves repeated analysis while staying
         # comfortably inside Render Free's 512 MB memory limit.
         self._send("setoption name USI_Hash value 128")
-        # Engine-side defaults are false. The switches keep v3, v2, v1 and the
-        # original material baseline independently reversible.
+        # Windows配布版を直接使っても同じv3になるようエンジン既定値もtrue。
+        # Web側は環境変数を明示し、v3・v2・v1・従来評価へ個別に戻せる。
         self._send(
             "setoption name VariantPawnEval value "
             + ("true" if VARIANT_PAWN_EVAL_ENABLED else "false")
@@ -318,6 +320,7 @@ class YaneuraOu:
 
 engine = YaneuraOu(ENGINE_PATH)
 opening_book = OpeningBook()
+game_stats = GameStats()
 atexit.register(engine.stop)
 
 
@@ -421,6 +424,10 @@ def opening_admin_authorized():
     )
 
 
+def game_token_serializer():
+    return URLSafeTimedSerializer(app.config["SECRET_KEY"], salt="hensoku-game-result-v1")
+
+
 @app.after_request
 def security_headers(response):
     response.headers["Content-Security-Policy"] = (
@@ -431,7 +438,10 @@ def security_headers(response):
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
-    if request.path.startswith("/api/opening-admin") or request.path == "/api/auth-status":
+    if (
+        request.path.startswith("/api/opening-admin")
+        or request.path in {"/api/auth-status", "/api/game-stats", "/api/game/result"}
+    ):
         response.headers["Cache-Control"] = "no-store"
     return response
 
@@ -452,6 +462,8 @@ def health():
             "hash_mb": 128,
             "opening_admin_auth_version": 2,
             "evaluation_graph_version": 1,
+            "candidate_arrow_version": 2,
+            "game_stats_version": 1,
             "variant_pawn_eval": VARIANT_PAWN_EVAL_ENABLED,
             "variant_pawn_eval_version": 1,
             "variant_attack_eval": VARIANT_ATTACK_EVAL_ENABLED,
@@ -460,6 +472,60 @@ def health():
             "variant_home_attack_eval_version": 3,
         }
     )
+
+
+@app.get("/api/game-stats")
+def game_stats_snapshot():
+    try:
+        return jsonify(game_stats.snapshot())
+    except GameStatsError:
+        app.logger.exception("game stats read failed")
+        return jsonify({"error": "AI戦績を読み込めませんでした。"}), 503
+
+
+@app.post("/api/game/start")
+def start_tracked_game():
+    data = json_body()
+    try:
+        ai_side = int(data.get("ai_side"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "AI側が不正です。"}), 400
+    if ai_side not in (0, 1):
+        return jsonify({"error": "AI側が不正です。"}), 400
+    payload = {"game_id": secrets.token_urlsafe(18), "ai_side": ai_side}
+    return jsonify({"game_token": game_token_serializer().dumps(payload)})
+
+
+@app.post("/api/game/result")
+def record_game_result():
+    data = json_body()
+    token = data.get("game_token")
+    try:
+        winner = int(data.get("winner"))
+    except (TypeError, ValueError):
+        winner = -1
+    if not isinstance(token, str) or winner not in (0, 1):
+        return jsonify({"error": "対局結果が不正です。"}), 400
+    try:
+        payload = game_token_serializer().loads(token, max_age=24 * 60 * 60)
+    except SignatureExpired:
+        return jsonify({"error": "対局結果の有効期限が切れています。"}), 400
+    except BadSignature:
+        return jsonify({"error": "対局結果を確認できません。"}), 400
+    if (
+        not isinstance(payload, dict)
+        or payload.get("ai_side") not in (0, 1)
+        or not isinstance(payload.get("game_id"), str)
+    ):
+        return jsonify({"error": "対局情報が不正です。"}), 400
+    try:
+        stats = game_stats.record(
+            payload["game_id"], payload["ai_side"], winner == payload["ai_side"]
+        )
+        return jsonify({"ok": True, "stats": stats})
+    except GameStatsError:
+        app.logger.exception("game stats update failed")
+        return jsonify({"error": "AI戦績を保存できませんでした。"}), 503
 
 
 @app.get("/api/auth-status")

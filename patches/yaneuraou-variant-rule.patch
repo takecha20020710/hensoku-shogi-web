@@ -70,21 +70,21 @@ index d4d7715..197dba1 100644
 +	// VariantHomeAttackEval=false で攻撃型v2へ戻せる。
 +	// VariantPawnEval=true, VariantAttackEval=false で歩評価v1へ戻せる。
 +	// VariantAttackEvalとVariantPawnEvalが両方falseなら従来評価へ戻る。
-+	bool variant_pawn_eval_enabled = false;
-+	bool variant_attack_eval_enabled = false;
-+	bool variant_home_attack_eval_enabled = false;
++	bool variant_pawn_eval_enabled = true;
++	bool variant_attack_eval_enabled = true;
++	bool variant_home_attack_eval_enabled = true;
 +
 +	void add_options(OptionsMap& options, ThreadPool&)
 +	{
-+		options.add("VariantPawnEval", Option(false, [](const Option& option) {
++		options.add("VariantPawnEval", Option(true, [](const Option& option) {
 +			variant_pawn_eval_enabled = int64_t(option) != 0;
 +			return std::nullopt;
 +		}));
-+		options.add("VariantAttackEval", Option(false, [](const Option& option) {
++		options.add("VariantAttackEval", Option(true, [](const Option& option) {
 +			variant_attack_eval_enabled = int64_t(option) != 0;
 +			return std::nullopt;
 +		}));
-+		options.add("VariantHomeAttackEval", Option(false, [](const Option& option) {
++		options.add("VariantHomeAttackEval", Option(true, [](const Option& option) {
 +			variant_home_attack_eval_enabled = int64_t(option) != 0;
 +			return std::nullopt;
 +		}));

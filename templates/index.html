@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="持ち駒が3枚になった側が負ける変則将棋をAIと対局できます。">
   <title>変則将棋AI</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260815-5') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css', v='20260816-1') }}">
 </head>
 <body>
   <main class="app-shell">
@@ -18,6 +18,17 @@
           <button id="match-mode-button" class="primary-button" type="button">対局モード</button>
           <button id="analysis-mode-button" class="secondary-button" type="button">検討モード</button>
         </div>
+        <section class="ai-record" aria-labelledby="ai-record-title">
+          <div class="ai-record-heading">
+            <h2 id="ai-record-title">AIの戦績</h2>
+            <span>全プレイヤー合計</span>
+          </div>
+          <div class="ai-record-grid">
+            <p><span>AI先手</span><strong id="ai-sente-record">--勝 --敗</strong></p>
+            <p><span>AI後手</span><strong id="ai-gote-record">--勝 --敗</strong></p>
+          </div>
+          <p id="game-stats-status" class="ai-record-note" aria-live="polite">この機能追加以降の対局を集計します。</p>
+        </section>
       </div>
     </section>
 
@@ -41,17 +52,7 @@
         <div class="board-wrap">
           <div class="board-stage">
             <div id="board" class="board" role="grid" aria-label="9×9将棋盤"></div>
-            <svg id="move-arrows" class="move-arrows" viewBox="0 0 9 9" preserveAspectRatio="none" aria-hidden="true">
-              <defs>
-                <marker id="best-arrow-head" markerWidth="0.85" markerHeight="0.85" refX="0.62" refY="0.35" orient="auto" viewBox="0 0 0.7 0.7">
-                  <path d="M 0 0 L 0.7 0.35 L 0 0.7 z" fill="#e53935"></path>
-                </marker>
-                <marker id="second-arrow-head" markerWidth="0.85" markerHeight="0.85" refX="0.62" refY="0.35" orient="auto" viewBox="0 0 0.7 0.7">
-                  <path d="M 0 0 L 0.7 0.35 L 0 0.7 z" fill="#f0b90b"></path>
-                </marker>
-              </defs>
-              <g id="arrow-lines"></g>
-            </svg>
+            <svg id="move-arrows" class="move-arrows" viewBox="0 0 9 9" preserveAspectRatio="none" aria-hidden="true"><g id="arrow-lines"></g></svg>
           </div>
           <p id="game-message" class="game-message" aria-live="assertive"></p>
         </div>
@@ -163,6 +164,18 @@
     </form>
   </dialog>
 
+  <dialog id="resign-dialog" class="password-dialog resign-dialog">
+    <form method="dialog">
+      <p class="eyebrow">RESIGN</p>
+      <h2>投了しますか？</h2>
+      <p>「いいえ」を押すと、この局面から対局を続けられます。</p>
+      <div class="post-game-analysis-actions">
+        <button id="confirm-resign" class="primary-button danger-button" type="button">はい</button>
+        <button id="cancel-resign" class="secondary-button" type="button">いいえ</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="kifu-dialog" class="password-dialog kifu-dialog">
     <form method="dialog">
       <button id="close-kifu" class="dialog-close" type="button" aria-label="閉じる">×</button>
@@ -224,6 +237,6 @@
     </form>
   </dialog>
 
-  <script src="{{ url_for('static', filename='app.js', v='20260815-5') }}" defer></script>
+  <script src="{{ url_for('static', filename='app.js', v='20260816-1') }}" defer></script>
 </body>
 </html>

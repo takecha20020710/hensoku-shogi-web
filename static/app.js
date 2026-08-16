@@ -28,6 +28,9 @@ const elements = {
   analysisModeButton: document.querySelector("#analysis-mode-button"),
   backToModes: document.querySelector("#back-to-modes"),
   resetGame: document.querySelector("#reset-game"),
+  aiSenteRecord: document.querySelector("#ai-sente-record"),
+  aiGoteRecord: document.querySelector("#ai-gote-record"),
+  gameStatsStatus: document.querySelector("#game-stats-status"),
   modeName: document.querySelector("#mode-name"),
   turnStatus: document.querySelector("#turn-status"),
   board: document.querySelector("#board"),
@@ -90,6 +93,9 @@ const elements = {
   postGameAnalysisDialog: document.querySelector("#post-game-analysis-dialog"),
   reviewFinishedGame: document.querySelector("#review-finished-game"),
   dismissFinishedGame: document.querySelector("#dismiss-finished-game"),
+  resignDialog: document.querySelector("#resign-dialog"),
+  confirmResign: document.querySelector("#confirm-resign"),
+  cancelResign: document.querySelector("#cancel-resign"),
 };
 
 let mode = null;
@@ -125,6 +131,8 @@ let analysisFlipped = false;
 let matchEvaluations = [];
 let showEvaluationGraph = false;
 let postGamePromptShown = false;
+let trackedGameGeneration = 0;
+let activeTrackedGame = null;
 
 
 function emptyHands() {
@@ -586,6 +594,72 @@ function aiSide() {
 }
 
 
+function renderGameStats(stats) {
+  const senteWins = Math.max(0, Number(stats?.sente?.wins) || 0);
+  const senteLosses = Math.max(0, Number(stats?.sente?.losses) || 0);
+  const goteWins = Math.max(0, Number(stats?.gote?.wins) || 0);
+  const goteLosses = Math.max(0, Number(stats?.gote?.losses) || 0);
+  elements.aiSenteRecord.textContent = `${senteWins}勝 ${senteLosses}敗`;
+  elements.aiGoteRecord.textContent = `${goteWins}勝 ${goteLosses}敗`;
+  elements.gameStatsStatus.textContent = "この機能追加以降の対局を集計しています。";
+}
+
+
+async function fetchGameStats() {
+  try {
+    renderGameStats(await getJson("/api/game-stats"));
+  } catch (_) {
+    elements.gameStatsStatus.textContent = "戦績を読み込めませんでした。次回表示時に再試行します。";
+  }
+}
+
+
+async function submitTrackedGameResult(gameToken, result, retryCount = 0) {
+  try {
+    const response = await postJson("/api/game/result", {
+      game_token: gameToken,
+      winner: result.winner,
+      reason: result.reason,
+    });
+    if (response.stats) renderGameStats(response.stats);
+  } catch (_) {
+    if (retryCount < 1) {
+      window.setTimeout(() => submitTrackedGameResult(gameToken, result, retryCount + 1), 1500);
+    }
+  }
+}
+
+
+async function beginTrackedGame() {
+  const trackedGame = {
+    generation: ++trackedGameGeneration,
+    token: null,
+    result: null,
+    submitted: false,
+  };
+  activeTrackedGame = trackedGame;
+  try {
+    const response = await postJson("/api/game/start", { ai_side: aiSide() });
+    trackedGame.token = response.game_token;
+    if (trackedGame.result) {
+      submitTrackedGameResult(trackedGame.token, trackedGame.result);
+    }
+  } catch (_) {
+    // 戦績開始処理だけが失敗した場合も、対局そのものは継続できるようにする。
+  }
+}
+
+
+function recordMatchResult(winner, reason) {
+  const trackedGame = activeTrackedGame;
+  if (mode !== "match" || !trackedGame || (winner !== 0 && winner !== 1) || trackedGame.submitted) return;
+  trackedGame.submitted = true;
+  const result = { winner, reason };
+  trackedGame.result = result;
+  if (trackedGame.token) submitTrackedGameResult(trackedGame.token, result);
+}
+
+
 function isAiTurn() {
   return mode === "match" && turn === aiSide();
 }
@@ -662,7 +736,37 @@ function reviewFinishedGameInAnalysis() {
 }
 
 
+function requestPositionResetOrResign() {
+  if (mode !== "match") {
+    resetPosition();
+    return;
+  }
+  if (!gameOver && !elements.resignDialog.open) elements.resignDialog.showModal();
+}
+
+
+function confirmResignation() {
+  if (elements.resignDialog.open) elements.resignDialog.close();
+  if (mode !== "match" || gameOver) return;
+  stopAnalysis(false);
+  requestSerial += 1;
+  aiThinking = false;
+  selected = null;
+  selectedHand = null;
+  legalTargets = [];
+  gameOver = true;
+  gameMessage = "投了しました。あなたの負けです。";
+  const winner = aiSide();
+  storeTerminalEvaluation(winner, "投了");
+  recordMatchResult(winner, "プレイヤー投了");
+  saveHistory();
+  renderAll();
+}
+
+
 function resetPosition() {
+  if (elements.resignDialog.open) elements.resignDialog.close();
+  if (elements.postGameAnalysisDialog.open) elements.postGameAnalysisDialog.close();
   stopAnalysis(false);
   requestSerial += 1;
   board = initialBoard();
@@ -679,7 +783,10 @@ function resetPosition() {
   aiThinking = false;
   history = [];
   historyIndex = -1;
-  if (mode === "match") resetMatchEvaluationState();
+  if (mode === "match") {
+    resetMatchEvaluationState();
+    beginTrackedGame();
+  }
   else {
     matchEvaluations = [];
     showEvaluationGraph = false;
@@ -724,6 +831,7 @@ function returnToModes() {
   elements.evaluationGraphSection.classList.add("is-hidden");
   elements.gameScreen.classList.add("is-hidden");
   elements.modeScreen.classList.remove("is-hidden");
+  fetchGameStats();
 }
 
 
@@ -781,13 +889,61 @@ function renderBoard() {
       elements.board.append(square);
     }
   }
-  renderCandidateArrows();
 }
 
 
 function displaySquare(row, col) {
   const flipped = boardIsFlipped();
   return flipped ? [8 - row, 8 - col] : [row, col];
+}
+
+
+function appendCandidateArrow(startX, startY, targetX, targetY, styleName, index, startPadding = 0.16) {
+  const dx = targetX - startX;
+  const dy = targetY - startY;
+  const distance = Math.hypot(dx, dy);
+  if (distance < 0.1) return;
+  const unitX = dx / distance;
+  const unitY = dy / distance;
+  const endPadding = Math.min(0.28, distance * 0.18);
+  const headLength = Math.min(index === 0 ? 0.46 : 0.4, distance * 0.28);
+  const headHalfWidth = index === 0 ? 0.25 : 0.21;
+  const tipX = targetX - unitX * endPadding;
+  const tipY = targetY - unitY * endPadding;
+  const baseX = tipX - unitX * headLength;
+  const baseY = tipY - unitY * headLength;
+  const perpendicularX = -unitY;
+  const perpendicularY = unitX;
+
+  const line = document.createElementNS(SVG_NS, "line");
+  line.setAttribute("x1", String(startX + unitX * Math.min(startPadding, distance * 0.18)));
+  line.setAttribute("y1", String(startY + unitY * Math.min(startPadding, distance * 0.18)));
+  line.setAttribute("x2", String(baseX + unitX * 0.04));
+  line.setAttribute("y2", String(baseY + unitY * 0.04));
+  line.setAttribute("class", `candidate-arrow ${styleName}`);
+
+  const head = document.createElementNS(SVG_NS, "polygon");
+  head.setAttribute(
+    "points",
+    `${tipX},${tipY} ${baseX + perpendicularX * headHalfWidth},${baseY + perpendicularY * headHalfWidth} ${baseX - perpendicularX * headHalfWidth},${baseY - perpendicularY * headHalfWidth}`,
+  );
+  head.setAttribute("class", `candidate-arrow-head ${styleName}`);
+  elements.arrowLines.append(line, head);
+}
+
+
+function handPieceArrowOrigin(owner, type) {
+  const container = owner === 0 ? elements.blackHand : elements.whiteHand;
+  const button = container.querySelector(`[data-piece-type="${type}"]`);
+  if (!button) return null;
+  const boardRectangle = elements.board.getBoundingClientRect();
+  const buttonRectangle = button.getBoundingClientRect();
+  if (!boardRectangle.width || !boardRectangle.height) return null;
+  return {
+    x: ((buttonRectangle.left + buttonRectangle.width / 2 - boardRectangle.left) / boardRectangle.width) * 9,
+    y: ((buttonRectangle.top + buttonRectangle.height / 2 - boardRectangle.top) / boardRectangle.height) * 9,
+    padding: (Math.min(buttonRectangle.width, buttonRectangle.height) / boardRectangle.width) * 9 * 0.36,
+  };
 }
 
 
@@ -801,31 +957,25 @@ function renderCandidateArrows() {
     const styleName = index === 0 ? "best" : "second";
 
     if (move.includes("*")) {
-      const [, squareText] = move.split("*");
+      const [pieceLetter, squareText] = move.split("*");
       const [row, col] = displaySquare(...parseUsiSquare(squareText));
-      const circle = document.createElementNS(SVG_NS, "circle");
-      circle.setAttribute("cx", String(col + 0.5));
-      circle.setAttribute("cy", String(row + 0.5));
-      circle.setAttribute("r", index === 0 ? "0.34" : "0.25");
-      circle.setAttribute("class", `candidate-drop ${styleName}`);
-      elements.arrowLines.append(circle);
+      const origin = handPieceArrowOrigin(turn, pieceLetter.toLowerCase());
+      if (origin) {
+        appendCandidateArrow(origin.x, origin.y, col + 0.5, row + 0.5, styleName, index, origin.padding);
+      }
       continue;
     }
 
     const [sourceRow, sourceCol] = displaySquare(...parseUsiSquare(move.slice(0, 2)));
     const [targetRow, targetCol] = displaySquare(...parseUsiSquare(move.slice(2, 4)));
-    const dx = targetCol - sourceCol;
-    const dy = targetRow - sourceRow;
-    const distance = Math.hypot(dx, dy) || 1;
-    const shortenStart = 0.16;
-    const shortenEnd = 0.28;
-    const line = document.createElementNS(SVG_NS, "line");
-    line.setAttribute("x1", String(sourceCol + 0.5 + (dx / distance) * shortenStart));
-    line.setAttribute("y1", String(sourceRow + 0.5 + (dy / distance) * shortenStart));
-    line.setAttribute("x2", String(targetCol + 0.5 - (dx / distance) * shortenEnd));
-    line.setAttribute("y2", String(targetRow + 0.5 - (dy / distance) * shortenEnd));
-    line.setAttribute("class", `candidate-arrow ${styleName}`);
-    elements.arrowLines.append(line);
+    appendCandidateArrow(
+      sourceCol + 0.5,
+      sourceRow + 0.5,
+      targetCol + 0.5,
+      targetRow + 0.5,
+      styleName,
+      index,
+    );
   }
 }
 
@@ -838,6 +988,8 @@ function renderHand(owner, container) {
     const button = document.createElement("button");
     button.type = "button";
     button.className = "hand-piece";
+    button.dataset.owner = String(owner);
+    button.dataset.pieceType = type;
     button.textContent = `${PIECE_NAMES[type]} ×${count}`;
     button.disabled = gameOver || aiThinking || owner !== turn || (mode === "match" && owner !== humanSide);
     if (selectedHand === type && owner === turn) button.classList.add("selected");
@@ -852,6 +1004,7 @@ function renderAll() {
   renderBoard();
   renderHand(0, elements.blackHand);
   renderHand(1, elements.whiteHand);
+  renderCandidateArrows();
   elements.blackHandCount.textContent = `${handTotal(0)} / 3`;
   elements.whiteHandCount.textContent = `${handTotal(1)} / 3`;
   elements.moveNumber.textContent = `現在：第${moveNumber}手目`;
@@ -860,6 +1013,9 @@ function renderAll() {
   if (gameOver) elements.turnStatus.textContent = "対局終了";
   else if (aiThinking) elements.turnStatus.textContent = "AI思考中...";
   else elements.turnStatus.textContent = turn === 0 ? "先手の番" : "後手の番";
+
+  elements.resetGame.textContent = mode === "match" ? "投了" : "初期配置に戻す";
+  elements.resetGame.disabled = mode === "match" && gameOver;
 
   updateHistoryButtons();
   if (showEvaluationGraph) window.requestAnimationFrame(drawEvaluationGraph);
@@ -942,7 +1098,11 @@ function completeMove(usiMove = null) {
   moveNumber += 1;
   turn = 1 - turn;
   const ended = checkGameEnd();
-  if (mode === "match" && ended) storeTerminalEvaluation();
+  if (mode === "match" && ended) {
+    const winner = currentTerminalWinner();
+    storeTerminalEvaluation(winner);
+    recordMatchResult(winner, "終局");
+  }
   saveHistory();
   if (mode === "analysis") resetAnalysisProgress(analysisRunning);
   renderAll();
@@ -1034,7 +1194,10 @@ function applyUsiMove(move) {
   if (!move || move === "resign") {
     gameOver = true;
     gameMessage = mode === "match" ? "AIが投了しました。あなたの勝ちです！" : "投了";
-    if (mode === "match") storeTerminalEvaluation(1 - turn, "投了");
+    if (mode === "match") {
+      storeTerminalEvaluation(1 - turn, "投了");
+      recordMatchResult(1 - turn, "AI投了");
+    }
     saveHistory();
     renderAll();
     return;
@@ -1042,7 +1205,10 @@ function applyUsiMove(move) {
   if (move === "win") {
     gameOver = true;
     gameMessage = "AIの入玉宣言勝ちです。";
-    if (mode === "match") storeTerminalEvaluation(turn, "入玉宣言");
+    if (mode === "match") {
+      storeTerminalEvaluation(turn, "入玉宣言");
+      recordMatchResult(turn, "AI入玉宣言");
+    }
     saveHistory();
     renderAll();
     return;
@@ -1917,7 +2083,7 @@ elements.chooseSente.addEventListener("click", () => startMatch(0));
 elements.chooseGote.addEventListener("click", () => startMatch(1));
 elements.closeSide.addEventListener("click", () => elements.sideDialog.close());
 elements.backToModes.addEventListener("click", returnToModes);
-elements.resetGame.addEventListener("click", resetPosition);
+elements.resetGame.addEventListener("click", requestPositionResetOrResign);
 elements.flipBoard.addEventListener("click", toggleBoardOrientation);
 elements.historyStart.addEventListener("click", () => restoreHistory(0));
 elements.historyBack.addEventListener("click", () => restoreHistory(historyIndex - 1));
@@ -1928,7 +2094,9 @@ elements.copyKifu.addEventListener("click", showKifuCopyDialog);
 elements.pasteKifu.addEventListener("click", showKifuPasteDialog);
 elements.openingManager.addEventListener("click", showOpeningManager);
 elements.reviewFinishedGame.addEventListener("click", reviewFinishedGameInAnalysis);
-elements.dismissFinishedGame.addEventListener("click", () => elements.postGameAnalysisDialog.close());
+elements.dismissFinishedGame.addEventListener("click", resetPosition);
+elements.confirmResign.addEventListener("click", confirmResignation);
+elements.cancelResign.addEventListener("click", () => elements.resignDialog.close());
 elements.evaluationGraph.addEventListener("click", (event) => moveToEvaluationGraphPosition(event.clientX));
 elements.evaluationGraph.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft" && historyIndex > 0) {
@@ -1981,6 +2149,8 @@ elements.openingAdminLoginDialog.addEventListener("cancel", () => {
 elements.openingManagerDialog.addEventListener("cancel", () => setOpeningManagerStatus(""));
 window.addEventListener("resize", () => {
   if (showEvaluationGraph) drawEvaluationGraph();
+  renderCandidateArrows();
 });
 
 updateHistoryButtons();
+fetchGameStats();
