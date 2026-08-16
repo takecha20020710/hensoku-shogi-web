@@ -48,17 +48,24 @@ diff --git a/source/engine/yaneuraou-engine/yaneuraou-search.cpp b/source/engine
      if (draw_type != REPETITION_NONE)
      /*
 diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/evaluate_material.cpp
+index 999f98b..c35cf8b 100644
 --- a/source/eval/material/evaluate_material.cpp
 +++ b/source/eval/material/evaluate_material.cpp
-@@ -4,6 +4,7 @@
- #include "../../types.h"
- #include "../../position.h"
- #include "../../evaluate.h"
+@@ -2,9 +2,10 @@
+ 
+ #if defined(EVAL_MATERIAL)
+ 
+-#include "../../types.h"
+-#include "../../position.h"
+-#include "../../evaluate.h"
++#include "../../types.h"
++#include "../../position.h"
++#include "../../evaluate.h"
 +#include "../../usioption.h"
  
  // パラメーターの自動調整フレームワーク
  #include <array>
-@@ -27,12 +27,104 @@ namespace Eval {
+@@ -27,13 +28,249 @@ namespace Eval {
  	// これでも3990XだとR2300ぐらいある。
  	// (序盤を定跡などでうまく乗り切れれば)
  
@@ -69,14 +76,20 @@ diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/e
 -
 -		return pos.side_to_move() == BLACK ? score : -score;
 -	}
-+	// 現行評価へ即座に戻せるよう、歩の実験評価はUSIオプションで分離する。
-+	// default=falseなので、オプションを無効にした場合は従来の駒得評価と完全に同じになる。
++	// 評価実験はUSIオプションで段階的に分離する。
++	// VariantPawnEval=true, VariantAttackEval=false で昨日の歩評価へ戻せる。
++	// 両方falseなら、従来の純粋な駒得評価へ戻る。
 +	bool variant_pawn_eval_enabled = false;
++	bool variant_attack_eval_enabled = false;
 +
 +	void add_options(OptionsMap& options, ThreadPool&)
 +	{
 +		options.add("VariantPawnEval", Option(false, [](const Option& option) {
 +			variant_pawn_eval_enabled = int64_t(option) != 0;
++			return std::nullopt;
++		}));
++		options.add("VariantAttackEval", Option(false, [](const Option& option) {
++			variant_attack_eval_enabled = int64_t(option) != 0;
 +			return std::nullopt;
 +		}));
 +	}
@@ -138,6 +151,142 @@ diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/e
 +		return color_score(BLACK) - color_score(WHITE);
 +	}
 +
++	// 攻撃型v2の評価。駒価値や持ち駒枚数そのものは変更しない。
++	// 昨日の歩評価より玉頭の位取りを強くし、攻めがない場合だけ囲いを次善とする。
++	Value variant_attack_score(const Position& pos)
++	{
++		const auto color_score = [&](Color color) {
++			int score = 0;
++			const Color opponent = ~color;
++			const Square opponent_king = pos.square<KING>(opponent);
++			const Square own_king = pos.square<KING>(color);
++			const File opponent_king_file = file_of(opponent_king);
++
++			// 玉頭の歩は「1マスずつ同じ価値」ではなく、五段目の位まで進むほど
++			// 評価を大きくする。20手目までは100%、以後は緩やかに弱める。
++			static constexpr int king_file_pawn_bonus[7] = {
++				0, 95, 230, 350, 430, 480, 520
++			};
++			const int game_ply = pos.game_ply();
++			const int opening_percent = game_ply <= 20
++				? 100
++				: (std::max)(40, 100 - (game_ply - 20) * 3);
++			Bitboard king_file_pawns = pos.pieces(color, PAWN) & file_bb(opponent_king_file);
++			if (king_file_pawns)
++			{
++				const Square sq = king_file_pawns.pop();
++				const int advance = color == BLACK
++					? (std::max)(0, int(RANK_7) - int(rank_of(sq)))
++					: (std::max)(0, int(rank_of(sq)) - int(RANK_3));
++				score += king_file_pawn_bonus[(std::min)(advance, 6)] * opening_percent / 100;
++			}
++
++			// 持ち歩は「枚数」ではなく、相手玉付近へすぐ打てるかだけを見る。
++			// 歩を取る駒得は180なので、遠い筋にしか打てない歩はそれを上回って減点し、
++			// 使える歩を取る手だけが駒得として残るようにする。
++			if (hand_count(pos.hand_of(color), PAWN) > 0)
++			{
++				const Bitboard board_pawns = pos.pieces(color, PAWN);
++				int closest_open_file = 9;
++				for (int file_index = int(FILE_1); file_index < int(FILE_NB); ++file_index)
++				{
++					const File file = File(file_index);
++					if (board_pawns & file_bb(file))
++						continue;
++					closest_open_file = (std::min)(
++						closest_open_file,
++						std::abs(file_index - int(opponent_king_file)));
++				}
++				static constexpr int unusable_pawn_penalty[10] = {
++					0, 65, 125, 180, 215, 225, 225, 225, 225, 270
++				};
++				score -= unusable_pawn_penalty[closest_open_file];
++			}
++
++			// 相手玉へ近づく攻め駒を評価する。盤上全体の利き計算は行わず、
++			// 攻撃参加に関係する駒だけを見ることで探索速度を保つ。
++			const auto add_king_proximity = [&](PieceType pt, int weight, int max_distance) {
++				Bitboard pieces = pos.pieces(color, pt);
++				while (pieces)
++				{
++					const Square sq = pieces.pop();
++					const int distance = dist(sq, opponent_king);
++					if (distance <= max_distance)
++						score += (max_distance + 1 - distance) * weight;
++				}
++			};
++			add_king_proximity(SILVER, 18, 4);
++			add_king_proximity(KNIGHT, 13, 4);
++			add_king_proximity(PRO_SILVER, 22, 4);
++			add_king_proximity(PRO_KNIGHT, 22, 4);
++			add_king_proximity(PRO_PAWN, 24, 4);
++			add_king_proximity(PRO_LANCE, 22, 4);
++			add_king_proximity(HORSE, 18, 5);
++			add_king_proximity(DRAGON, 20, 5);
++
++			// 大駒が相手玉と同じ筋・段・斜線へ移ることを攻撃準備として評価する。
++			Bitboard bishops = pos.pieces(color, BISHOP);
++			while (bishops)
++			{
++				const Square sq = bishops.pop();
++				const int file_distance = std::abs(int(file_of(sq)) - int(opponent_king_file));
++				const int rank_distance = std::abs(int(rank_of(sq)) - int(rank_of(opponent_king)));
++				if (file_distance == rank_distance)
++					score += 32;
++			}
++			Bitboard rooks = pos.pieces(color, ROOK);
++			while (rooks)
++			{
++				const Square sq = rooks.pop();
++				if (file_of(sq) == opponent_king_file || rank_of(sq) == rank_of(opponent_king))
++					score += 38;
++			}
++
++			// 攻めが成立しない局面でだけ選ばれる程度の、小さな囲い評価。
++			// 自玉2マス以内の金銀を数え、攻撃評価より十分弱くする。
++			Bitboard defenders = pos.pieces(color, GOLD, SILVER);
++			while (defenders)
++			{
++				const Square sq = defenders.pop();
++				const int distance = dist(sq, own_king);
++				if (distance <= 2)
++					score += distance == 1 ? 11 : 5;
++			}
++
++			// 12香・92香型の待ち手を抑える。玉側の端攻め、歩を進めた筋、
++			// 歩がなく香が直ちに働ける筋は例外として残す。
++			Bitboard lances = pos.pieces(color, LANCE);
++			while (lances)
++			{
++				const Square sq = lances.pop();
++				const Rank rank = rank_of(sq);
++				const bool one_step_wait = color == BLACK ? rank == RANK_8 : rank == RANK_2;
++				if (!one_step_wait)
++					continue;
++
++				const File file = file_of(sq);
++				const int king_file_distance = std::abs(int(file) - int(opponent_king_file));
++				Bitboard same_file_pawns = pos.pieces(color, PAWN) & file_bb(file);
++				bool pawn_cleared_or_advanced = !same_file_pawns;
++				if (same_file_pawns)
++				{
++					const Square pawn_sq = same_file_pawns.pop();
++					const int pawn_advance = color == BLACK
++						? (std::max)(0, int(RANK_7) - int(rank_of(pawn_sq)))
++						: (std::max)(0, int(rank_of(pawn_sq)) - int(RANK_3));
++					pawn_cleared_or_advanced = pawn_advance >= 2;
++				}
++
++				if (king_file_distance > 1 && !pawn_cleared_or_advanced)
++					score -= 105;
++			}
++
++			return score;
++		};
++
++		return color_score(BLACK) - color_score(WHITE);
++	}
++
 +	Value compute_eval(const Position& pos)
 +	{
 +		const Color us = pos.side_to_move();
@@ -163,10 +312,14 @@ diff --git a/source/eval/material/evaluate_material.cpp b/source/eval/material/e
 +		auto score = pos.state()->materialValue;
 +		ASSERT_LV5(pos.state()->materialValue == Eval::material(pos));
 +
-+		if (variant_pawn_eval_enabled)
++		if (variant_attack_eval_enabled)
++			score += variant_attack_score(pos);
++		else if (variant_pawn_eval_enabled)
 +			score += variant_pawn_score(pos);
 +
 +		return us == BLACK ? score : -score;
 +	}
  
  #elif MATERIAL_LEVEL == 2
+ 
+
