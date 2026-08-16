@@ -17,3 +17,5 @@ services:
         value: /opt/yaneuraou/YaneuraOu
       - key: VARIANT_PAWN_EVAL
         value: "true"
+      - key: VARIANT_ATTACK_EVAL
+        value: "true"
