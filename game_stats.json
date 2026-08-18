@@ -1,13 +1,13 @@
 {
   "version": 1,
   "started_at": "2026-08-16T14:54:16.013Z",
-  "updated_at": "2026-08-18T01:27:50.383092+00:00",
+  "updated_at": "2026-08-18T01:33:26.077260+00:00",
   "sente": {
     "wins": 35,
     "losses": 12
   },
   "gote": {
-    "wins": 67,
+    "wins": 68,
     "losses": 7
   },
   "processed_games": [
@@ -131,6 +131,7 @@
     "gAc1-5a8QNT8AGMQd465Zhnv",
     "Jtf-iPpBNgcCUMQqgwYcCM6b",
     "jjfZ_PP0FGqhXdT2KVhBwU6T",
-    "WfcdanYW-hx5g6HsXCNtE_27"
+    "WfcdanYW-hx5g6HsXCNtE_27",
+    "hl9zgYB9_SrRfQ1OnjUm-72U"
   ]
 }
