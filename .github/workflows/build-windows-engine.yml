@@ -33,12 +33,10 @@ jobs:
           git -C YaneuraOu apply --check ../patches/yaneuraou-variant-rule.patch
           git -C YaneuraOu apply ../patches/yaneuraou-variant-rule.patch
           cd YaneuraOu/source
-          make clean YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL
-          make -j2 normal COMPILER=g++ YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL ENGINE_NAME=HensokuShogi-Material-AVX2 TARGET_CPU=AVX2
+          make -j2 pgo-tournament COMPILER=g++ YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL ENGINE_NAME=HensokuShogi-Material-AVX2 TARGET_CPU=AVX2
           mkdir -p ../../dist
           cp YaneuraOu-by-gcc.exe ../../dist/HensokuShogi-Material-AVX2.exe
-          make clean YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL
-          make -j2 normal COMPILER=g++ YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL ENGINE_NAME=HensokuShogi-Material-SSE42 TARGET_CPU=SSE42
+          make -j2 pgo-tournament COMPILER=g++ YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL ENGINE_NAME=HensokuShogi-Material-SSE42 TARGET_CPU=SSE42
           cp YaneuraOu-by-gcc.exe ../../dist/HensokuShogi-Material-SSE42.exe
           cp ../../engine-package/README.txt ../../dist/README.txt
           cp ../LICENSE ../../dist/YaneuraOu-LICENSE.txt
