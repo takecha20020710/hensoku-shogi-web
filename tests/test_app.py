@@ -70,7 +70,7 @@ def test_index_and_health():
     assert health["variant_home_attack_eval_version"] == 3
     assert health["variant_pawn_eval"] is True
     assert health["variant_pawn_eval_version"] == 1
-    assert health["variant_pawn_search_version"] == 4
+    assert health["variant_pawn_search_version"] == 5
     assert health["candidate_arrow_version"] == 2
     assert health["game_stats_version"] == 1
 
