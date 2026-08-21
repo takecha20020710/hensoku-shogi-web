@@ -19,15 +19,13 @@ RUN git -C /src/YaneuraOu apply --check /tmp/yaneuraou-variant-rule.patch \
 
 WORKDIR /src/YaneuraOu/source
 
-RUN make clean YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
-    && make -j2 tournament \
+RUN make -j2 pgo-tournament \
         COMPILER=g++ \
         YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
         ENGINE_NAME=YaneuraOu-Material-SSE42 \
         TARGET_CPU=SSE42 \
     && install -D -m 0755 YaneuraOu-by-gcc /out/YaneuraOu \
-    && make clean YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
-    && make -j2 tournament \
+    && make -j2 pgo-tournament \
         COMPILER=g++ \
         YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL \
         ENGINE_NAME=YaneuraOu-Material-AVX2 \
