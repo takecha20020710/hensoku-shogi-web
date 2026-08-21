@@ -29,7 +29,7 @@ index a46e346..f6de40d 100644
  	rm -f $(OBJECTS) $(CUDA_OBJECTS) $(OBJC_OBJECTS) $(DEPENDS) $(TARGET) ${OBJECTS:.o=.gcda}
  
 diff --git a/source/engine/yaneuraou-engine/yaneuraou-search.cpp b/source/engine/yaneuraou-engine/yaneuraou-search.cpp
-index 5233fd1..1a403ae 100644
+index 5233fd1..303017e 100644
 --- a/source/engine/yaneuraou-engine/yaneuraou-search.cpp
 +++ b/source/engine/yaneuraou-engine/yaneuraou-search.cpp
 @@ -2428,6 +2428,22 @@ Value YaneuraOuWorker::search(Position& pos, Stack* ss, Value alpha, Value beta,
@@ -55,7 +55,7 @@ index 5233fd1..1a403ae 100644
      if (!rootNode)
      {
          // -----------------------
-@@ -3548,6 +3564,31 @@ moves_loop:  // When in check, search starts here
+@@ -3548,6 +3564,36 @@ moves_loop:  // When in check, search starts here
          // 今回移動させる駒(移動後の駒)
          movedPiece = pos.moved_piece(move);
  
@@ -79,15 +79,20 @@ index 5233fd1..1a403ae 100644
 +			&& bool(pos.attackers_to(~us, move.to_sq(), occupiedAfter))
 +			&& !pos.see_ge(move, 0);
 +
-+		// ルートでは、相手駒へ直接当たる歩の手を独立に3手深く検証する。
-+		// 通常探索で候補外になる現象を、盤面全体・両手番共通で防ぐ。
-+		if (rootNode && isForcingPawnMove)
++		// 3枚ルールでは、駒取り・成りから数手後に押し売りが成立することがある。
++		// 「着手直後に取られる手」だけでは55飛型を拾えないため、ルートでは
++		// 駒取りと成りも、連鎖の入口となる戦術手として独立に深く確認する。
++		const bool isVariantTacticalRoot =
++			rootNode && (capture || move.is_promote() || isForcingPawnMove || isVariantOffer);
++
++		// ルートでは連鎖の入口を通常候補より3手深く検証する。
++		if (isVariantTacticalRoot)
 +			extension = std::max(extension, Depth(3));
 +
          // 今回の指し手で王手になるかどうか
          givesCheck = pos.gives_check(move);
  
-@@ -3608,7 +3649,7 @@ moves_loop:  // When in check, search starts here
+@@ -3608,7 +3654,7 @@ moves_loop:  // When in check, search starts here
                  // Futility pruning for captures
                  // 駒を取る指し手に対するfutility枝刈り
  
@@ -96,7 +101,7 @@ index 5233fd1..1a403ae 100644
                  {
                      // 🤔 StockfishのPieceValue[]は、
                      //     やねうら王ではCapturePieceValue[] + CapturePieceValue[capturedPiece]
-@@ -3616,8 +3657,8 @@ moves_loop:  // When in check, search starts here
+@@ -3616,8 +3662,8 @@ moves_loop:  // When in check, search starts here
                      //     のほうがより正確な評価ではないか？
  
                      Value futilityValue = ss->staticEval + 218 + 223 * lmrDepth
@@ -107,7 +112,7 @@ index 5233fd1..1a403ae 100644
  
                      if (futilityValue <= alpha)
                          continue;
-@@ -3635,9 +3676,9 @@ moves_loop:  // When in check, search starts here
+@@ -3635,9 +3681,9 @@ moves_loop:  // When in check, search starts here
  				// 🤔 pos.non_pawn_material(us) != PieceValue[movedPiece]に相当する条件は何だろう？
  				//     歩以外の駒割がmovedPieceの駒割というのは、駒が盤上にたくさん残っている感じだろうか。
  
@@ -119,7 +124,7 @@ index 5233fd1..1a403ae 100644
                      continue;
  
              }
-@@ -3650,7 +3691,8 @@ moves_loop:  // When in check, search starts here
+@@ -3650,7 +3696,8 @@ moves_loop:  // When in check, search starts here
                  // Continuation history based pruning
                  // Continuation historyに基づいた枝刈り(historyの値が悪いものに関してはskip)
  
@@ -129,7 +134,7 @@ index 5233fd1..1a403ae 100644
                      continue;
  
                  history += 71 * mainHistory[us][move.raw()] / 32;
-@@ -3661,7 +3703,7 @@ moves_loop:  // When in check, search starts here
+@@ -3661,7 +3708,7 @@ moves_loop:  // When in check, search starts here
                  lmrDepth += history / 3220;
  
                  Value futilityValue = ss->staticEval + 42 + 151 * !bestMove + 120 * lmrDepth
@@ -138,7 +143,7 @@ index 5233fd1..1a403ae 100644
  
                  // Futility pruning: parent node
                  // (*Scaler): Generally, more frequent futility pruning
-@@ -3674,7 +3716,8 @@ moves_loop:  // When in check, search starts here
+@@ -3674,7 +3721,8 @@ moves_loop:  // When in check, search starts here
                  // 🤔 パラメーター調整の係数を調整したほうが良いのかも知れないが、
                  // 　  ここ、そんなに大きなEloを持っていないので、調整しても…。
  
@@ -148,7 +153,7 @@ index 5233fd1..1a403ae 100644
                  {
                      if (bestValue <= futilityValue && !is_decisive(bestValue) && !is_win(futilityValue))
                          bestValue = futilityValue;
-@@ -3694,7 +3737,9 @@ moves_loop:  // When in check, search starts here
+@@ -3694,7 +3742,9 @@ moves_loop:  // When in check, search starts here
                  // 負のSEEを持つ指し手を枝刈りする
                  // 💡 lmrDepthの2乗に比例するのでこのパラメーターの影響はすごく大きい。
  
@@ -159,7 +164,7 @@ index 5233fd1..1a403ae 100644
                      continue;
              }
          }
-@@ -3940,6 +3985,20 @@ moves_loop:  // When in check, search starts here
+@@ -3940,6 +3990,20 @@ moves_loop:  // When in check, search starts here
          if (allNode)
              r += r * 273 / (256 * depth + 260);
  
@@ -180,7 +185,7 @@ index 5233fd1..1a403ae 100644
  		// -----------------------
          // Step 17. Late moves reduction / extension (LMR)
          // Step 17. 遅い指し手の削減／延長（LMR)
-@@ -4588,6 +4647,22 @@ Value Search::YaneuraOuWorker::qsearch(Position& pos, Stack* ss, Value alpha, Va
+@@ -4588,6 +4652,22 @@ Value Search::YaneuraOuWorker::qsearch(Position& pos, Stack* ss, Value alpha, Va
      // 現局面の手番側のColor
      Color us = pos.side_to_move();
  
