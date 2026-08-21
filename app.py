@@ -467,7 +467,7 @@ def health():
             "game_stats_version": 1,
             "variant_pawn_eval": VARIANT_PAWN_EVAL_ENABLED,
             "variant_pawn_eval_version": 1,
-            "variant_pawn_search_version": 2,
+            "variant_pawn_search_version": 3,
             "variant_attack_eval": VARIANT_ATTACK_EVAL_ENABLED,
             "variant_attack_eval_version": 2,
             "variant_home_attack_eval": VARIANT_HOME_ATTACK_EVAL_ENABLED,
