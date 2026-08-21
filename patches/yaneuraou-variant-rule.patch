@@ -55,7 +55,7 @@ index 5233fd1..6462809 100644
      if (!rootNode)
      {
          // -----------------------
-@@ -3548,6 +3564,10 @@ moves_loop:  // When in check, search starts here
+@@ -3548,6 +3564,20 @@ moves_loop:  // When in check, search starts here
          // 今回移動させる駒(移動後の駒)
          movedPiece = pos.moved_piece(move);
  
@@ -63,10 +63,20 @@ index 5233fd1..6462809 100644
 +		// moved_piece_before()を使うことで、成った後も元が歩なら歩の手として扱う。
 +		const bool isPawnMove = type_of(pos.moved_piece_before(move)) == PAWN;
 +
++		// 着手後の歩が直ちに相手駒へ当たるか。筋・段・先後には依存しない。
++		// 歩打ちだけでなく歩突き、歩成り/不成にも同じ判定を使う。
++		const bool isForcingPawnMove =
++			isPawnMove && bool(pawnEffect(us, move.to_sq()) & pos.pieces(~us));
++
++		// ルートでは、相手駒へ直接当たる歩の手を独立に3手深く検証する。
++		// 通常探索で候補外になる現象を、盤面全体・両手番共通で防ぐ。
++		if (rootNode && isForcingPawnMove)
++			extension = std::max(extension, Depth(3));
++
          // 今回の指し手で王手になるかどうか
          givesCheck = pos.gives_check(move);
  
-@@ -3616,7 +3636,8 @@ moves_loop:  // When in check, search starts here
+@@ -3616,7 +3646,8 @@ moves_loop:  // When in check, search starts here
                      //     のほうがより正確な評価ではないか？
  
                      Value futilityValue = ss->staticEval + 218 + 223 * lmrDepth
@@ -76,7 +86,7 @@ index 5233fd1..6462809 100644
  
  
                      if (futilityValue <= alpha)
-@@ -3637,7 +3658,7 @@ moves_loop:  // When in check, search starts here
+@@ -3637,7 +3668,7 @@ moves_loop:  // When in check, search starts here
  
                  if ((alpha >= VALUE_DRAW)
  #endif
@@ -85,35 +95,40 @@ index 5233fd1..6462809 100644
                      continue;
  
              }
-@@ -3650,7 +3671,7 @@ moves_loop:  // When in check, search starts here
+@@ -3650,7 +3681,7 @@ moves_loop:  // When in check, search starts here
                  // Continuation history based pruning
                  // Continuation historyに基づいた枝刈り(historyの値が悪いものに関してはskip)
  
 -                if (history < -4097 * depth)
-+                if (history < -(4097 + 2048 * isPawnMove) * depth)
++                if (!isForcingPawnMove && history < -(4097 + 2048 * isPawnMove) * depth)
                      continue;
  
                  history += 71 * mainHistory[us][move.raw()] / 32;
-@@ -3661,7 +3682,7 @@ moves_loop:  // When in check, search starts here
+@@ -3661,5 +3692,5 @@ moves_loop:  // When in check, search starts here
                  lmrDepth += history / 3220;
  
                  Value futilityValue = ss->staticEval + 42 + 151 * !bestMove + 120 * lmrDepth
 -                                    + 86 * (ss->staticEval > alpha);
 +                                    + 86 * (ss->staticEval > alpha) + 192 * isPawnMove;
  
-                 // Futility pruning: parent node
-                 // (*Scaler): Generally, more frequent futility pruning
-@@ -3694,7 +3715,8 @@ moves_loop:  // When in check, search starts here
+@@ -3677,4 +3708,4 @@ moves_loop:  // When in check, search starts here
+-                if (!ss->inCheck && lmrDepth < 13 && futilityValue <= alpha)
++                if (!isForcingPawnMove && !ss->inCheck && lmrDepth < 13 && futilityValue <= alpha)
+                 {
+                     if (bestValue <= futilityValue && !is_decisive(bestValue) && !is_win(futilityValue))
+                         bestValue = futilityValue;
+@@ -3694,7 +3725,9 @@ moves_loop:  // When in check, search starts here
                  // 負のSEEを持つ指し手を枝刈りする
                  // 💡 lmrDepthの2乗に比例するのでこのパラメーターの影響はすごく大きい。
  
 -                if (!pos.see_ge(move, -25 * lmrDepth * lmrDepth))
 +                const int seeMultiplier = isPawnMove ? 40 : 25;
-+                if (!pos.see_ge(move, -seeMultiplier * lmrDepth * lmrDepth))
++                if (!isForcingPawnMove
++                    && !pos.see_ge(move, -seeMultiplier * lmrDepth * lmrDepth))
                      continue;
              }
          }
-@@ -3940,6 +3962,11 @@ moves_loop:  // When in check, search starts here
+@@ -3940,6 +3973,16 @@ moves_loop:  // When in check, search starts here
          if (allNode)
              r += r * 273 / (256 * depth + 260);
  
@@ -122,10 +137,15 @@ index 5233fd1..6462809 100644
 +		if (isPawnMove)
 +			r -= 512;
 +
++		// 相手駒へ当たる歩は応手を強制しやすいので、通常の歩よりさらに1.5手分、
++		// LMRで浅くしない。候補順だけでなく、枝の中でも同じ規則を適用する。
++		if (isForcingPawnMove)
++			r -= 1536;
++
  		// -----------------------
          // Step 17. Late moves reduction / extension (LMR)
          // Step 17. 遅い指し手の削減／延長（LMR)
-@@ -4588,6 +4615,22 @@ Value Search::YaneuraOuWorker::qsearch(Position& pos, Stack* ss, Value alpha, Va
+@@ -4588,6 +4631,22 @@ Value Search::YaneuraOuWorker::qsearch(Position& pos, Stack* ss, Value alpha, Va
      // 現局面の手番側のColor
      Color us = pos.side_to_move();
  
@@ -567,7 +587,7 @@ index 5fe5ff7..d6b247c 100644
  			// →　係数を掛けてるのは、
  			// このあと、GOOD_CAPTURE で、
  			//	return pos.see_ge(*cur, Value(-cur->value))
-@@ -367,6 +373,10 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
+@@ -367,6 +373,24 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
  			m.value +=      (*continuationHistory[3])[pc][to];
  			m.value +=      (*continuationHistory[5])[pc][to];
  
@@ -575,10 +595,24 @@ index 5fe5ff7..d6b247c 100644
 +			// 歩の候補をすべて完全探索するのではなく、まず候補順だけを上げる。
 +			m.value += pawnMove * 3072;
 +
++			// 歩を動かした直後に相手駒へ当たる手は、単なる歩の手よりさらに先に読む。
++			// 例: 歩打ちで飛車・角へ当てる手。筋や先後を固定せず、盤面上の全ての歩に適用する。
++			// この種の手は次の応手をほぼ強制しやすく、遅く読むとLMRの縮小探索だけで
++			// 誤って候補外になりやすいため、当たる駒の価値に応じて候補順を上げる。
++			if (pawnMove)
++			{
++				Bitboard pawnTargets = pawnEffect(us, to) & pos.pieces(~us);
++				if (pawnTargets)
++				{
++					const Piece threatenedPiece = pos.piece_on(pawnTargets.pop());
++					m.value += 12288 + 4 * int(Eval::PieceValue[threatenedPiece]);
++				}
++			}
++
  			// bonus for checks
  			m.value += ((pos.check_squares(pt) & to) && pos.see_ge(m, -75)) * 16384;
  			// これ、効果があるのか検証したほうが良さげ。
-@@ -419,6 +429,8 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
+@@ -419,6 +443,8 @@ ExtMove* MovePicker::score(const MoveList<Type>& ml) {
  			else
  				// それ以外の指し手に関してはhistoryの値の順番
  				m.value = (*mainHistory)[us][m.raw()] + (*continuationHistory[0])[pc][to];
