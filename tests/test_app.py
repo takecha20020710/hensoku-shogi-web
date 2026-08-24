@@ -55,9 +55,15 @@ def test_index_and_health():
     assert b'choose-gote' in page.data
     assert b'post-game-analysis-dialog' in page.data
     assert b'resign-dialog' in page.data
+    assert b'promotion-dialog' in page.data
+    assert b'choose-promote' in page.data
+    assert b'choose-no-promote' in page.data
     assert b'ai-sente-record' in page.data
     assert b'ai-gote-record' in page.data
     assert "思考エンジン" not in page.get_data(as_text=True)
+    javascript = client.get("/static/app.js").get_data(as_text=True)
+    assert 'window.confirm("成りますか？")' not in javascript
+    assert "pendingPromotionMove" in javascript
     health = client.get("/api/health").get_json()
     assert health["ok"] is True
     assert health["threads"] == 1
