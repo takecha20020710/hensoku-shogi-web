@@ -96,6 +96,9 @@ const elements = {
   resignDialog: document.querySelector("#resign-dialog"),
   confirmResign: document.querySelector("#confirm-resign"),
   cancelResign: document.querySelector("#cancel-resign"),
+  promotionDialog: document.querySelector("#promotion-dialog"),
+  choosePromote: document.querySelector("#choose-promote"),
+  chooseNoPromote: document.querySelector("#choose-no-promote"),
 };
 
 let mode = null;
@@ -133,6 +136,7 @@ let showEvaluationGraph = false;
 let postGamePromptShown = false;
 let trackedGameGeneration = 0;
 let activeTrackedGame = null;
+let pendingPromotionMove = null;
 
 
 function emptyHands() {
@@ -549,6 +553,7 @@ function saveHistory() {
 
 function restoreHistory(index) {
   if (index < 0 || index >= history.length) return;
+  cancelPendingPromotion();
   const resumeAnalysis = analysisRunning;
   window.clearTimeout(analysisTimer);
   analysisTimer = null;
@@ -765,6 +770,7 @@ function confirmResignation() {
 
 
 function resetPosition() {
+  cancelPendingPromotion();
   if (elements.resignDialog.open) elements.resignDialog.close();
   if (elements.postGameAnalysisDialog.open) elements.postGameAnalysisDialog.close();
   stopAnalysis(false);
@@ -823,6 +829,7 @@ function startMatch(side) {
 
 
 function returnToModes() {
+  cancelPendingPromotion();
   stopAnalysis(false);
   requestSerial += 1;
   aiThinking = false;
@@ -1024,7 +1031,7 @@ function renderAll() {
 
 
 function canInteract() {
-  if (gameOver || aiThinking || !mode) return false;
+  if (gameOver || aiThinking || !mode || pendingPromotionMove) return false;
   return !(mode === "match" && turn !== humanSide);
 }
 
@@ -1112,7 +1119,7 @@ function completeMove(usiMove = null) {
 }
 
 
-function performMove(fromRow, fromCol, toRow, toCol) {
+function finishPieceMove(fromRow, fromCol, toRow, toCol, promote) {
   const piece = board[fromRow][fromCol];
   if (!piece) return;
   const [owner, originalType] = piece;
@@ -1122,15 +1129,49 @@ function performMove(fromRow, fromCol, toRow, toCol) {
     if (capturedType !== "k") hands[owner][capturedType] += 1;
   }
 
-  let type = originalType;
-  if (mustPromote(originalType, owner, toRow)) type = PROMOTE[originalType];
-  else if (canPromote(originalType, owner, fromRow, toRow) && window.confirm("成りますか？")) type = PROMOTE[originalType];
+  const type = promote ? PROMOTE[originalType] : originalType;
 
   board[toRow][toCol] = [owner, type];
   board[fromRow][fromCol] = null;
   lastMove = [toRow, toCol];
   const promotion = type !== originalType ? "+" : "";
   completeMove(`${toUsiSquare(fromRow, fromCol)}${toUsiSquare(toRow, toCol)}${promotion}`);
+}
+
+
+function closePromotionDialog(promote) {
+  if (!pendingPromotionMove) return;
+  const [fromRow, fromCol, toRow, toCol] = pendingPromotionMove;
+  pendingPromotionMove = null;
+  elements.promotionDialog.classList.add("is-hidden");
+  finishPieceMove(fromRow, fromCol, toRow, toCol, promote);
+}
+
+
+function cancelPendingPromotion() {
+  pendingPromotionMove = null;
+  elements.promotionDialog.classList.add("is-hidden");
+}
+
+
+function performMove(fromRow, fromCol, toRow, toCol) {
+  const piece = board[fromRow][fromCol];
+  if (!piece) return;
+  const [owner, originalType] = piece;
+
+  if (mustPromote(originalType, owner, toRow)) {
+    finishPieceMove(fromRow, fromCol, toRow, toCol, true);
+    return;
+  }
+
+  if (canPromote(originalType, owner, fromRow, toRow)) {
+    pendingPromotionMove = [fromRow, fromCol, toRow, toCol];
+    elements.promotionDialog.classList.remove("is-hidden");
+    window.requestAnimationFrame(() => elements.choosePromote.focus());
+    return;
+  }
+
+  finishPieceMove(fromRow, fromCol, toRow, toCol, false);
 }
 
 
@@ -2097,6 +2138,8 @@ elements.reviewFinishedGame.addEventListener("click", reviewFinishedGameInAnalys
 elements.dismissFinishedGame.addEventListener("click", resetPosition);
 elements.confirmResign.addEventListener("click", confirmResignation);
 elements.cancelResign.addEventListener("click", () => elements.resignDialog.close());
+elements.choosePromote.addEventListener("click", () => closePromotionDialog(true));
+elements.chooseNoPromote.addEventListener("click", () => closePromotionDialog(false));
 elements.evaluationGraph.addEventListener("click", (event) => moveToEvaluationGraphPosition(event.clientX));
 elements.evaluationGraph.addEventListener("keydown", (event) => {
   if (event.key === "ArrowLeft" && historyIndex > 0) {
